@@ -39,3 +39,7 @@ infrastructure/
 .env
 .env.*
 !.env.example
+
+# generated from vite.config.ts by TypeScript build
+frontend/vite.config.js
+frontend/vite.config.d.ts

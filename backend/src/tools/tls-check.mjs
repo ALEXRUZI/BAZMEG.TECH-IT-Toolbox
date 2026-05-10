@@ -3,6 +3,15 @@ import net from "node:net";
 import tls from "node:tls";
 
 const CONNECT_TIMEOUT_MS = 7000;
+const DNS_FAMILY_TIMEOUT_MS = 3000;
+const SUPPORTED_TLS_PORTS = new Set([
+  443,
+  4443,
+  7443,
+  8443,
+  9443,
+  10443,
+]);
 
 export class TlsCheckError extends Error {
   constructor(code, message) {
@@ -18,7 +27,29 @@ export async function checkTlsCertificate({ host, port }) {
   const normalizedPort = normalizePort(port);
   const resolvedAddresses = await resolvePublicAddresses(normalizedHost);
   const tlsResult = await connectTls(normalizedHost, normalizedPort, resolvedAddresses);
-  const certificate = formatCertificate(tlsResult.peerCertificate);
+  const certificate = formatCertificate(tlsResult.peerCertificate, "server");
+  const chain = buildCertificateChain(tlsResult.peerCertificate);
+  const hostnameVerificationError = tls.checkServerIdentity(normalizedHost, tlsResult.peerCertificate);
+  const hostnameMatches = !hostnameVerificationError;
+  const hostnameError = hostnameMatches ? null : "The certificate does not match the requested hostname.";
+  const warnings = getCertificateWarnings(chain);
+  const summary = {
+    resolves: true,
+    trusted: tlsResult.authorized,
+    hostnameMatches,
+    notExpired: certificate.daysRemaining !== null && certificate.daysRemaining >= 0,
+    chainProvided: chain.length > 1,
+  };
+  const checks = buildChecks({
+    host: normalizedHost,
+    resolvedAddresses,
+    tlsResult,
+    certificate,
+    chain,
+    hostnameMatches,
+    hostnameError,
+    warnings,
+  });
 
   return {
     ok: true,
@@ -32,7 +63,10 @@ export async function checkTlsCertificate({ host, port }) {
       cipher: tlsResult.cipher,
     },
     certificate,
-    warnings: [],
+    warnings,
+    summary,
+    checks,
+    chain,
   };
 }
 
@@ -74,8 +108,8 @@ function normalizeHost(host) {
 }
 
 function normalizePort(port) {
-  if (port !== 443) {
-    throw new TlsCheckError("INVALID_PORT", "Only port 443 is supported.");
+  if (!Number.isInteger(port) || !SUPPORTED_TLS_PORTS.has(port)) {
+    throw new TlsCheckError("INVALID_PORT", "Enter a supported TLS port.");
   }
 
   return port;
@@ -93,18 +127,12 @@ async function resolvePublicAddresses(host) {
 }
 
 async function resolveAddresses(host) {
-  const lookups = await Promise.allSettled([
-    dns.resolve4(host),
-    dns.resolve6(host),
+  const lookups = await Promise.all([
+    resolveDnsFamily(dns.resolve4(host)),
+    resolveDnsFamily(dns.resolve6(host)),
   ]);
 
-  const addresses = [];
-
-  for (const lookup of lookups) {
-    if (lookup.status === "fulfilled") {
-      addresses.push(...lookup.value);
-    }
-  }
+  const addresses = lookups.flat();
 
   if (addresses.length === 0) {
     try {
@@ -120,6 +148,15 @@ async function resolveAddresses(host) {
   }
 
   return [...new Set(addresses)];
+}
+
+function resolveDnsFamily(lookup) {
+  return Promise.race([
+    lookup.catch(() => []),
+    new Promise((resolve) => {
+      setTimeout(() => resolve([]), DNS_FAMILY_TIMEOUT_MS);
+    }),
+  ]);
 }
 
 async function connectTls(servername, port, addresses) {
@@ -147,6 +184,15 @@ async function connectTls(servername, port, addresses) {
 
 function connectTlsAddress(servername, port, address, activeSockets) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutId;
+    const fail = () => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeoutId);
+        reject(new TlsCheckError("TLS_CONNECTION_FAILED", "TLS connection failed."));
+      }
+    };
     const socket = tls.connect({
       host: address,
       port,
@@ -155,15 +201,23 @@ function connectTlsAddress(servername, port, address, activeSockets) {
       timeout: CONNECT_TIMEOUT_MS,
     });
 
+    timeoutId = setTimeout(() => {
+      socket.destroy();
+      fail();
+    }, CONNECT_TIMEOUT_MS);
+
     activeSockets.add(socket);
     socket.once("close", () => {
       activeSockets.delete(socket);
+      fail();
     });
 
     socket.once("secureConnect", () => {
       const cipher = socket.getCipher();
-      const peerCertificate = socket.getPeerCertificate();
+      const peerCertificate = socket.getPeerCertificate(true);
 
+      settled = true;
+      clearTimeout(timeoutId);
       socket.end();
 
       resolve({
@@ -177,20 +231,70 @@ function connectTlsAddress(servername, port, address, activeSockets) {
 
     socket.once("timeout", () => {
       socket.destroy(new Error("TLS connection timed out."));
+      fail();
     });
 
     socket.once("error", () => {
-      reject(new TlsCheckError("TLS_CONNECTION_FAILED", "TLS connection failed."));
+      fail();
     });
   });
 }
 
-function formatCertificate(certificate) {
+function buildCertificateChain(peerCertificate) {
+  const chain = [];
+  const seenFingerprints = new Set();
+  let currentCertificate = peerCertificate;
+
+  for (let depth = 0; currentCertificate && depth < 10; depth += 1) {
+    const fingerprint = currentCertificate.fingerprint256 || currentCertificate.fingerprint || `depth:${depth}`;
+
+    if (seenFingerprints.has(fingerprint)) {
+      break;
+    }
+
+    seenFingerprints.add(fingerprint);
+    chain.push(formatCertificate(currentCertificate, getCertificateType(currentCertificate, depth)));
+
+    const issuerCertificate = currentCertificate.issuerCertificate;
+
+    if (
+      !issuerCertificate ||
+      issuerCertificate === currentCertificate ||
+      issuerCertificate.fingerprint256 === currentCertificate.fingerprint256
+    ) {
+      break;
+    }
+
+    currentCertificate = issuerCertificate;
+  }
+
+  return chain;
+}
+
+function getCertificateType(certificate, depth) {
+  if (depth === 0) {
+    return "server";
+  }
+
+  if (
+    certificate.ca === true &&
+    certificate.subject &&
+    certificate.issuer &&
+    JSON.stringify(certificate.subject) === JSON.stringify(certificate.issuer)
+  ) {
+    return "root";
+  }
+
+  return "intermediate";
+}
+
+function formatCertificate(certificate, type = "chain") {
   if (!certificate || Object.keys(certificate).length === 0) {
     throw new TlsCheckError("CERTIFICATE_UNAVAILABLE", "Certificate information was unavailable.");
   }
 
   return {
+    type,
     subject: certificate.subject || {},
     issuer: certificate.issuer || {},
     validFrom: certificate.valid_from || null,
@@ -199,7 +303,97 @@ function formatCertificate(certificate) {
     serialNumber: certificate.serialNumber || null,
     fingerprint256: certificate.fingerprint256 || null,
     subjectAltName: certificate.subjectaltname || null,
+    signatureAlgorithm: certificate.signatureAlgorithm || certificate.sigalg || null,
+    publicKeyAlgorithm: certificate.asymmetricKeyType || certificate.publicKeyAlgorithm || null,
+    modulusLength: certificate.modulusLength || null,
+    bits: certificate.bits || null,
   };
+}
+
+function buildChecks({
+  host,
+  resolvedAddresses,
+  tlsResult,
+  certificate,
+  chain,
+  hostnameMatches,
+  hostnameError,
+  warnings,
+}) {
+  const checks = [
+    {
+      id: "dns_resolves",
+      status: "pass",
+      message: `${host} resolves to ${resolvedAddresses.join(", ")}`,
+    },
+    {
+      id: "certificate_trusted",
+      status: tlsResult.authorized ? "pass" : "fail",
+      message: tlsResult.authorized
+        ? "The certificate is trusted by the default trust store."
+        : `The certificate is not trusted${tlsResult.authorizationError ? `: ${tlsResult.authorizationError}` : "."}`,
+    },
+    {
+      id: "certificate_expiry",
+      status: getExpiryStatus(certificate.daysRemaining),
+      message: getExpiryMessage(certificate.daysRemaining),
+    },
+    {
+      id: "hostname_match",
+      status: hostnameMatches ? "pass" : "fail",
+      message: hostnameMatches
+        ? "The hostname is correctly listed in the certificate."
+        : hostnameError,
+    },
+    {
+      id: "certificate_chain",
+      status: chain.length > 1 ? "pass" : "warn",
+      message: `The server provided ${chain.length} certificate${chain.length === 1 ? "" : "s"}.`,
+    },
+  ];
+
+  if (warnings.some((warning) => warning.includes("weak signature algorithm"))) {
+    checks.push({
+      id: "weak_signature",
+      status: "warn",
+      message: "At least one certificate uses a weak signature algorithm.",
+    });
+  }
+
+  return checks;
+}
+
+function getExpiryStatus(daysRemaining) {
+  if (daysRemaining === null || daysRemaining < 0) {
+    return "fail";
+  }
+
+  return daysRemaining <= 30 ? "warn" : "pass";
+}
+
+function getExpiryMessage(daysRemaining) {
+  if (daysRemaining === null) {
+    return "The certificate expiration date could not be read.";
+  }
+
+  if (daysRemaining < 0) {
+    return `The certificate expired ${Math.abs(daysRemaining)} day${Math.abs(daysRemaining) === 1 ? "" : "s"} ago.`;
+  }
+
+  return `The certificate expires in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}.`;
+}
+
+function getCertificateWarnings(chain) {
+  return chain.flatMap((certificate, index) => {
+    const signatureAlgorithm = certificate.signatureAlgorithm?.toLowerCase() || "";
+
+    if (!signatureAlgorithm.includes("md5") && !signatureAlgorithm.includes("sha1")) {
+      return [];
+    }
+
+    const label = index === 0 ? "server certificate" : `chain certificate ${index + 1}`;
+    return [`The ${label} uses a weak signature algorithm: ${certificate.signatureAlgorithm}.`];
+  });
 }
 
 function getDaysRemaining(validTo) {

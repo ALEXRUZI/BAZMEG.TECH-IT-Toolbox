@@ -235,7 +235,10 @@ function Header() {
       <div className="flex items-center gap-4">
         <ToolboxIcon />
         <div>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">IT Toolbox | Bazmeg.Tech</h1>
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+            IT Toolbox |{' '}
+            <span className="text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,0.35)]">Bazmeg.Tech</span>
+          </h1>
         </div>
       </div>
     </header>
@@ -285,12 +288,26 @@ function ToolboxIcon() {
 
 function Hero() {
   return (
-    <section className="overflow-hidden rounded-3xl border border-green-400/35 bg-gradient-to-br from-green-900/80 via-emerald-950 to-zinc-950 p-6 shadow-2xl shadow-green-950/50 sm:p-8">
+    <section className="relative overflow-hidden rounded-3xl border border-green-400/35 bg-gradient-to-br from-green-900/80 via-emerald-950 to-zinc-950 p-6 shadow-2xl shadow-green-950/50 sm:p-8">
+      <a
+        className="absolute right-4 top-4 inline-flex size-12 items-center justify-center rounded-2xl border border-emerald-400/35 bg-zinc-950/45 text-emerald-200 transition hover:border-emerald-300 hover:bg-emerald-500/15 sm:right-6 sm:top-6 sm:size-14"
+        href="https://github.com/ALEXRUZI/BAZMEG.TECH-IT-Toolbox"
+        target="_blank"
+        rel="noreferrer"
+        aria-label="GitHub project"
+        title="GitHub project"
+      >
+        <svg aria-hidden="true" className="size-7 sm:size-8" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.58 2 12.22c0 4.5 2.87 8.32 6.84 9.67.5.09.68-.22.68-.49v-1.9c-2.78.62-3.37-1.22-3.37-1.22-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.56 2.35 1.11 2.92.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.28 9.28 0 0 1 12 6.9c.85 0 1.7.12 2.5.34 1.9-1.33 2.74-1.05 2.74-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.34 4.8-4.57 5.05.36.32.68.94.68 1.9v2.8c0 .27.18.59.69.49A10.1 10.1 0 0 0 22 12.22C22 6.58 17.52 2 12 2Z" />
+        </svg>
+      </a>
       <div>
         <div>
-          <h2 className="mt-3 max-w-3xl text-3xl font-bold tracking-tight sm:text-5xl">
-            Useful sysadmin tools for real infrastructure work.
-          </h2>
+          <div className="mt-3 max-w-5xl pr-14 sm:pr-20">
+            <h2 className="max-w-3xl text-3xl font-bold tracking-tight sm:text-5xl">
+              Useful sysadmin tools for real infrastructure work.
+            </h2>
+          </div>
           <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-300">
             Generate firewall rules, cron schedules, permissions, and other admin snippets with validation built in before
             you paste anything into a terminal.
@@ -446,7 +463,7 @@ function renderTool(tool: Tool) {
 function EmptyWorkbench() {
   return (
     <Panel title="Choose a tool">
-      <div className="rounded-2xl border border-dashed border-emerald-500/25 bg-zinc-950/60 p-8 text-center">
+      <div className="rounded-2xl border border-dashed border-emerald-500/25 bg-zinc-950/60 p-8 text-center text-zinc-100">
         <p className="text-lg font-semibold">Select a tool from the list.</p>
         <p className="mt-2 text-sm leading-6 text-zinc-400">
           The selected tool will load here.
@@ -466,6 +483,24 @@ function PlannedTool({ tool }: { tool: Tool }) {
   );
 }
 
+type TlsCheckStatus = 'pass' | 'warn' | 'fail';
+
+type TlsCertificateDetail = {
+  type: 'server' | 'intermediate' | 'root' | 'chain';
+  subject: Record<string, string | undefined>;
+  issuer: Record<string, string | undefined>;
+  validFrom: string | null;
+  validTo: string | null;
+  daysRemaining: number | null;
+  serialNumber: string | null;
+  fingerprint256: string | null;
+  subjectAltName: string | null;
+  signatureAlgorithm: string | null;
+  publicKeyAlgorithm: string | null;
+  modulusLength: number | null;
+  bits: number | null;
+};
+
 type TlsCheckSuccess = {
   ok: true;
   host: string;
@@ -477,24 +512,21 @@ type TlsCheckSuccess = {
     protocol: string | null;
     cipher: string | null;
   };
-  certificate: {
-    subject: {
-      CN?: string;
-      [key: string]: string | undefined;
-    };
-    issuer: {
-      CN?: string;
-      O?: string;
-      [key: string]: string | undefined;
-    };
-    validFrom: string | null;
-    validTo: string | null;
-    daysRemaining: number | null;
-    serialNumber: string | null;
-    fingerprint256: string | null;
-    subjectAltName: string | null;
-  };
+  certificate: TlsCertificateDetail;
   warnings: string[];
+  summary: {
+    resolves: boolean;
+    trusted: boolean;
+    hostnameMatches: boolean;
+    notExpired: boolean;
+    chainProvided: boolean;
+  };
+  checks: Array<{
+    id: string;
+    status: TlsCheckStatus;
+    message: string;
+  }>;
+  chain: TlsCertificateDetail[];
 };
 
 type TlsCheckErrorResponse = {
@@ -507,14 +539,29 @@ type TlsCheckErrorResponse = {
 
 type TlsCheckResponse = TlsCheckSuccess | TlsCheckErrorResponse;
 
+const tlsPortOptions = [
+  { value: 443, label: '443 - HTTPS' },
+  { value: 4443, label: '4443 - HTTPS alternate' },
+  { value: 7443, label: '7443 - HTTPS alternate' },
+  { value: 8443, label: '8443 - HTTPS alternate' },
+  { value: 9443, label: '9443 - HTTPS alternate' },
+  { value: 10443, label: '10443 - HTTPS alternate / appliance HTTPS' },
+] as const;
+
 function TlsCertificateChecker() {
-  const [host, setHost] = useState('example.com');
+  const tlsHostExample = 'google.com';
+  const [hostInput, setHostInput] = useState('');
+  const [selectedPort, setSelectedPort] = useState(443);
+  const [isHostFocused, setIsHostFocused] = useState(false);
   const [result, setResult] = useState<TlsCheckSuccess | null>(null);
   const [error, setError] = useState<TlsCheckErrorResponse['error'] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const hasHost = host.trim().length > 0;
+  const hasHost = hostInput.trim().length > 0;
 
   async function checkCertificate() {
+    const normalizedHost = normalizeTlsHostInput(hostInput);
+
+    setHostInput(normalizedHost);
     setIsLoading(true);
     setResult(null);
     setError(null);
@@ -526,8 +573,8 @@ function TlsCertificateChecker() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          host: host.trim(),
-          port: 443,
+          host: normalizedHost,
+          port: selectedPort,
         }),
       });
       const body = (await response.json()) as TlsCheckResponse;
@@ -556,32 +603,55 @@ function TlsCertificateChecker() {
       <p className="max-w-4xl text-sm leading-6 text-zinc-300">
         Check the public certificate and TLS settings for an HTTPS endpoint.
       </p>
-      <div className="mt-5 grid gap-4 md:grid-cols-[1fr_140px_auto]">
+      <div className="mt-5 grid gap-4 md:grid-cols-[minmax(0,1fr)_260px_auto]">
         <Field>
           <Label>Hostname</Label>
-          <input
-            className={inputClass(!hasHost)}
-            placeholder="example.com"
-            value={host}
-            onChange={(event) => setHost(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && hasHost && !isLoading) {
-                void checkCertificate();
-              }
-            }}
-          />
-          {!hasHost && <p className="text-xs leading-5 text-red-300">Hostname is required.</p>}
+          <div className="relative">
+            {!hostInput && !isHostFocused && (
+              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-zinc-500">
+                {tlsHostExample}
+              </span>
+            )}
+            <input
+              aria-label="Hostname"
+              className={inputClass()}
+              value={hostInput}
+              onBlur={() => {
+                setIsHostFocused(false);
+                setHostInput((value) => normalizeTlsHostInput(value));
+              }}
+              onChange={(event) => setHostInput(event.target.value)}
+              onFocus={() => setIsHostFocused(true)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && hasHost && !isLoading) {
+                  void checkCertificate();
+                }
+              }}
+            />
+          </div>
         </Field>
         <Field>
           <Label>Port</Label>
-          <input className={inputClass(false, true)} readOnly value="443" />
+          <select
+            className={inputClass()}
+            value={selectedPort}
+            onChange={(event) => setSelectedPort(Number(event.target.value))}
+          >
+            {tlsPortOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs leading-5 text-zinc-400">Only common direct-TLS HTTPS ports are supported.</p>
         </Field>
         <div className="flex items-end">
           <button
-            className="w-full rounded-xl border border-emerald-500/35 bg-emerald-500/15 px-5 py-2 text-sm font-semibold text-emerald-200 transition hover:border-emerald-400 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+            className="w-full rounded-xl border border-emerald-500/35 bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition hover:border-emerald-300 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500 md:w-auto"
             type="button"
             onClick={() => void checkCertificate()}
             disabled={!hasHost || isLoading}
+            aria-busy={isLoading}
           >
             {isLoading ? 'Checking...' : 'Check certificate'}
           </button>
@@ -589,37 +659,220 @@ function TlsCertificateChecker() {
       </div>
 
       {error && (
-        <div className="mt-5 rounded-2xl border border-red-400/25 bg-red-400/10 p-4">
-          <p className="text-sm font-semibold text-red-200">{error.code}</p>
-          <p className="mt-1 text-sm leading-6 text-red-100">{error.message}</p>
+        <div className="mt-5 rounded-2xl border border-red-300/35 bg-red-950/40 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-200">Error code</p>
+          <p className="mt-1 font-mono text-sm text-red-100">{error.code}</p>
+          <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-red-200">Message</p>
+          <p className="mt-1 text-sm leading-6 text-red-50">{error.message}</p>
         </div>
       )}
 
       {result && (
         <div className="mt-6 space-y-5">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <ResultItem label="Host" value={result.host} />
-            <ResultItem label="Port" value={String(result.port)} />
-            <ResultItem label="TLS authorized" value={result.tls.authorized ? 'true' : 'false'} />
-            <ResultItem label="Authorization error" value={result.tls.authorizationError} />
-            <ResultItem label="TLS protocol" value={result.tls.protocol} />
-            <ResultItem label="Cipher" value={result.tls.cipher} />
-            <ResultItem label="Subject CN" value={result.certificate.subject.CN} />
-            <ResultItem label="Issuer CN" value={result.certificate.issuer.CN} />
-            <ResultItem label="Issuer O" value={result.certificate.issuer.O} />
-            <ResultItem label="Valid from" value={result.certificate.validFrom} />
-            <ResultItem label="Valid to" value={result.certificate.validTo} />
-            <ResultItem label="Days remaining" value={formatOptionalNumber(result.certificate.daysRemaining)} />
-          </div>
+          <TlsResultSection title="Result summary">
+            <div className="space-y-3">
+              {result.checks.map((check) => (
+                <TlsCheckRow key={check.id} check={check} />
+              ))}
+            </div>
+          </TlsResultSection>
 
-          <ResultBlock label="SHA256 fingerprint" value={result.certificate.fingerprint256} />
-          <ResultBlock label="Subject Alternative Names" value={result.certificate.subjectAltName} />
-          <ResultBlock label="Resolved addresses" value={result.resolvedAddresses.join('\n')} />
-          {result.warnings.length > 0 && <ResultBlock label="Warnings" value={result.warnings.join('\n')} />}
+          <TlsResultSection title="TLS status">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <ResultItem label="Host" value={result.host} />
+              <ResultItem label="Port" value={String(result.port)} />
+              <ResultItem label="Authorized" value={result.tls.authorized ? 'Yes' : 'No'} />
+              <ResultItem label="Authorization error" value={result.tls.authorizationError} />
+              <ResultItem label="Protocol" value={result.tls.protocol} />
+              <ResultItem label="Cipher" value={result.tls.cipher} />
+            </div>
+          </TlsResultSection>
+
+          <TlsResultSection title="DNS resolution">
+            <TlsListBlock values={result.resolvedAddresses} />
+          </TlsResultSection>
+
+          <TlsResultSection title="Server certificate">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <ResultItem label="Subject CN" value={result.certificate.subject.CN} />
+              <ResultItem label="Issuer CN" value={result.certificate.issuer.CN} />
+              <ResultItem label="Issuer O" value={result.certificate.issuer.O} />
+              <ResultItem label="Valid from" value={result.certificate.validFrom} />
+              <ResultItem label="Valid to" value={result.certificate.validTo} />
+              <ResultItem label="Days remaining" value={formatOptionalNumber(result.certificate.daysRemaining)} />
+              <ResultItem label="Serial number" value={result.certificate.serialNumber} />
+              <ResultItem label="SHA256 fingerprint" value={result.certificate.fingerprint256} />
+            </div>
+            <div className="mt-3">
+              <TlsListBlock values={parseSubjectAltNames(result.certificate.subjectAltName)} fallback={result.certificate.subjectAltName} />
+            </div>
+          </TlsResultSection>
+
+          <TlsCertificateChain chain={result.chain} />
+
+          {result.warnings.length > 0 && (
+            <TlsResultSection title="Warnings">
+              <TlsListBlock values={result.warnings} />
+            </TlsResultSection>
+          )}
         </div>
       )}
     </Panel>
   );
+}
+
+function TlsResultSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-emerald-500/15 bg-zinc-900/70 p-4">
+      <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-200">{title}</h3>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+function TlsCheckRow({ check }: { check: { status: TlsCheckStatus; message: string } }) {
+  const statusCopy = {
+    pass: { icon: '✓', label: 'Pass', className: 'border-emerald-400/35 bg-emerald-500/10 text-emerald-200' },
+    warn: { icon: '!', label: 'Warn', className: 'border-amber-300/35 bg-amber-400/10 text-amber-100' },
+    fail: { icon: '×', label: 'Fail', className: 'border-red-300/35 bg-red-500/10 text-red-100' },
+  }[check.status];
+
+  return (
+    <div className={`flex items-start gap-3 rounded-xl border p-3 ${statusCopy.className}`}>
+      <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border border-current text-sm font-bold">
+        {statusCopy.icon}
+      </span>
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em]">{statusCopy.label}</p>
+        <p className="mt-1 text-sm leading-6">{check.message}</p>
+      </div>
+    </div>
+  );
+}
+
+function TlsCertificateChain({ chain }: { chain: TlsCertificateDetail[] }) {
+  if (chain.length === 0) {
+    return null;
+  }
+
+  return (
+    <TlsResultSection title="Certificate chain">
+      <div className="space-y-3">
+        {chain.map((certificate, index) => (
+          <div key={`${certificate.fingerprint256 || certificate.serialNumber || index}-${index}`}>
+            <TlsCertificateCard certificate={certificate} index={index} />
+            {index < chain.length - 1 && (
+              <div className="flex justify-center py-2 text-emerald-300/70" aria-hidden="true">
+                ↓
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </TlsResultSection>
+  );
+}
+
+function TlsCertificateCard({ certificate, index }: { certificate: TlsCertificateDetail; index: number }) {
+  const title = index === 0 ? 'Server certificate' : getChainCertificateTitle(certificate, index);
+  const keyDetails = [
+    certificate.publicKeyAlgorithm,
+    certificate.bits ? `${certificate.bits} bits` : null,
+    certificate.modulusLength ? `${certificate.modulusLength} modulus bits` : null,
+  ].filter(Boolean).join(' / ');
+
+  return (
+    <article className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h4 className="text-base font-semibold text-zinc-100">{title}</h4>
+          <p className="mt-1 text-sm text-zinc-400">{certificate.subject.CN || 'Subject CN unavailable'}</p>
+        </div>
+        <span className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-200">
+          {certificate.type}
+        </span>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <ResultItem label="Subject CN" value={certificate.subject.CN} />
+        <ResultItem label="Issuer CN" value={certificate.issuer.CN} />
+        <ResultItem label="Issuer O" value={certificate.issuer.O} />
+        <ResultItem label="Valid from" value={certificate.validFrom} />
+        <ResultItem label="Valid to" value={certificate.validTo} />
+        <ResultItem label="Days remaining" value={formatOptionalNumber(certificate.daysRemaining)} />
+        <ResultItem label="Serial number" value={certificate.serialNumber} />
+        <ResultItem label="Signature algorithm" value={certificate.signatureAlgorithm} />
+        <ResultItem label="Public key" value={keyDetails || null} />
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <ResultBlock label="SHA256 fingerprint" value={certificate.fingerprint256} />
+        <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Subject Alternative Names</p>
+          <div className="mt-3">
+            <TlsListBlock values={parseSubjectAltNames(certificate.subjectAltName)} fallback={certificate.subjectAltName} />
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function getChainCertificateTitle(certificate: TlsCertificateDetail, index: number) {
+  if (certificate.type === 'root') {
+    return 'Root certificate';
+  }
+
+  if (certificate.type === 'intermediate') {
+    return 'Intermediate certificate';
+  }
+
+  return `Chain certificate ${index + 1}`;
+}
+
+function TlsListBlock({ values, fallback }: { values: string[]; fallback?: string | null }) {
+  const displayValues = values.length > 0 ? values : fallback ? [fallback] : [];
+
+  if (displayValues.length === 0) {
+    return <p className="text-sm text-zinc-400">-</p>;
+  }
+
+  return (
+    <details className="rounded-xl border border-white/10 bg-zinc-950/60 p-4" open={displayValues.length <= 8}>
+      <summary className="cursor-pointer text-sm font-semibold text-zinc-200">
+        {displayValues.length} {displayValues.length === 1 ? 'item' : 'items'}
+      </summary>
+      <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-2">
+        {displayValues.map((value, index) => (
+          <div
+            key={`${value}-${index}`}
+            className="break-words rounded-lg border border-white/10 bg-zinc-950 px-3 py-2 font-mono text-xs leading-5 text-zinc-100"
+          >
+            {value}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function normalizeTlsHostInput(value: string): string {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return '';
+  }
+
+  try {
+    const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const parsed = new URL(withScheme);
+
+    return parsed.hostname.toLowerCase();
+  } catch {
+    return trimmed
+      .replace(/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//, '')
+      .split(/[/?#]/)[0]
+      .trim()
+      .toLowerCase();
+  }
 }
 
 function ResultItem({ label, value }: { label: string; value: string | null | undefined }) {
@@ -644,10 +897,27 @@ function formatOptionalNumber(value: number | null) {
   return value === null ? null : String(value);
 }
 
+function formatDistinguishedName(value: Record<string, string | undefined>) {
+  const entries = Object.entries(value).filter(([, entryValue]) => entryValue);
+
+  return entries.length > 0 ? entries.map(([key, entryValue]) => `${key}: ${entryValue}`).join('\n') : null;
+}
+
+function parseSubjectAltNames(value: string | null) {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(/,\s*/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <article className="rounded-3xl border border-emerald-500/15 bg-zinc-900/70 p-5 shadow-xl shadow-black/30">
-      <h2 className="text-xl font-semibold">{title}</h2>
+    <article className="rounded-3xl border border-emerald-500/15 bg-zinc-900/70 p-5 text-zinc-100 shadow-xl shadow-black/30">
+      <h2 className="text-xl font-semibold text-white">{title}</h2>
       <div className="mt-5">{children}</div>
     </article>
   );

@@ -2,6 +2,8 @@
 
 A browser-based toolbox for common sysadmin, network, Linux, and developer tasks.
 
+Note: This is an AI-assisted project. The code, structure, and documentation are being built with help from AI, but the project is reviewed, tested, and maintained manually.
+
 The goal is to keep everyday infrastructure helpers in one simple frontend: generate firewall commands, convert data units, format text, calculate schedules, and create CSRs without sending sensitive input to a server.
 
 ## Status
@@ -68,8 +70,44 @@ http://localhost:5173
 
 ```bash
 npm run build
+npm run typecheck
+```
+
+To preview the production build locally:
+
+```bash
 npm run preview
 ```
+
+## Deployment
+
+Target URL:
+
+```text
+https://toolbox.bazmeg.tech
+```
+
+Deployment uses GitHub Pages through GitHub Actions. In the GitHub repository settings, Pages source must be set to **GitHub Actions**.
+
+The custom domain must be configured manually in GitHub repo **Settings -> Pages**:
+
+```text
+toolbox.bazmeg.tech
+```
+
+DNS must point the subdomain to GitHub Pages:
+
+```text
+Type: CNAME
+Name: toolbox
+Target: ALEXRUZI.github.io
+```
+
+For GitHub Actions Pages deployment, do not rely on `public/CNAME`; the custom domain is configured in GitHub Pages settings.
+
+For this custom domain, `vite.config.ts` must not use `base: '/BAZMEG.TECH-IT-Toolbox/'`. The default root base is correct for `https://toolbox.bazmeg.tech`.
+
+Deploy happens automatically from GitHub Actions after pushing to `main`.
 
 ## Backend
 

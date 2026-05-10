@@ -245,7 +245,11 @@ function Header() {
 function ToolboxIcon() {
   return (
     <div className="flex size-16 shrink-0 items-center justify-center rounded-2xl border border-green-400/35 bg-emerald-500/10 shadow-lg shadow-green-950/40">
-      <svg aria-hidden="true" className="size-10 text-green-400 drop-shadow-[0_0_12px_rgba(74,222,128,0.45)]" viewBox="0 0 64 64">
+      <svg
+        aria-hidden="true"
+        className="size-10 text-green-400 drop-shadow-[0_0_12px_rgba(74,222,128,0.45)]"
+        viewBox="0 0 64 64"
+      >
         <path
           d="M23 18v-3.5A4.5 4.5 0 0 1 27.5 10h9A4.5 4.5 0 0 1 41 14.5V18"
           fill="none"
@@ -314,7 +318,9 @@ function ToolList({
     <aside className="rounded-3xl border border-emerald-500/15 bg-zinc-900/70 p-4">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">Tools</h2>
-        <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">{visibleTools.length}</span>
+        <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+          {visibleTools.length}
+        </span>
       </div>
       <div className="mb-4 grid gap-2 sm:grid-cols-[1fr_auto]">
         <input
@@ -337,40 +343,46 @@ function ToolList({
           const isSelected = tool.id === selectedToolId;
 
           return (
-          <button
-            key={tool.id}
-            className={`group relative w-full overflow-hidden rounded-2xl border p-4 text-left transition duration-200 ${
-              isSelected
-                ? 'border-emerald-400/50 bg-emerald-950/30'
-                : 'border-white/10 bg-zinc-950/60 hover:-translate-y-1 hover:border-emerald-400/45 hover:bg-emerald-950/20 hover:shadow-lg hover:shadow-emerald-950/40'
-            }`}
-            type="button"
-            onClick={() => onSelect(tool.id)}
-          >
-            {!isSelected && (
-              <span className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full bg-green-400 opacity-0 shadow-[0_0_16px_rgba(74,222,128,0.8)] transition-opacity duration-200 group-hover:opacity-100" />
-            )}
-            <div className="relative flex items-start justify-between gap-3">
-              <div>
-                <h3 className={`font-semibold ${tool.status === 'planned' ? 'text-yellow-300' : ''}`}>{tool.name}</h3>
-                <p
-                  className={`mt-1 text-xs font-semibold uppercase tracking-[0.2em] ${
-                    tool.status === 'planned'
-                      ? 'text-yellow-200/80'
-                      : 'text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,0.35)]'
-                  }`}
-                >
-                  {tool.category}
-                </p>
+            <button
+              key={tool.id}
+              className={`group relative w-full overflow-hidden rounded-2xl border p-4 text-left transition duration-200 ${
+                isSelected
+                  ? 'border-emerald-400/50 bg-emerald-950/30'
+                  : 'border-white/10 bg-zinc-950/60 hover:-translate-y-1 hover:border-emerald-400/45 hover:bg-emerald-950/20 hover:shadow-lg hover:shadow-emerald-950/40'
+              }`}
+              type="button"
+              onClick={() => onSelect(tool.id)}
+            >
+              {!isSelected && (
+                <span className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full bg-green-400 opacity-0 shadow-[0_0_16px_rgba(74,222,128,0.8)] transition-opacity duration-200 group-hover:opacity-100" />
+              )}
+              <div className="relative flex items-start justify-between gap-3">
+                <div>
+                  <h3 className={`font-semibold ${tool.status === 'planned' ? 'text-yellow-300' : ''}`}>
+                    {tool.name}
+                  </h3>
+                  <p
+                    className={`mt-1 text-xs font-semibold uppercase tracking-[0.2em] ${
+                      tool.status === 'planned'
+                        ? 'text-yellow-200/80'
+                        : 'text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,0.35)]'
+                    }`}
+                  >
+                    {tool.category}
+                  </p>
+                </div>
+                <span className={`rounded-full px-2 py-1 text-xs ring-1 ${statusStyle[tool.status]}`}>
+                  {tool.status}
+                </span>
               </div>
-              <span className={`rounded-full px-2 py-1 text-xs ring-1 ${statusStyle[tool.status]}`}>
-                {tool.status}
-              </span>
-            </div>
-            <p className={`relative mt-3 text-sm leading-6 ${tool.status === 'planned' ? 'text-yellow-100/80' : 'text-zinc-300'}`}>
-              {tool.description}
-            </p>
-          </button>
+              <p
+                className={`relative mt-3 text-sm leading-6 ${
+                  tool.status === 'planned' ? 'text-yellow-100/80' : 'text-zinc-300'
+                }`}
+              >
+                {tool.description}
+              </p>
+            </button>
           );
         })}
         {!visibleTools.length && (
@@ -1043,8 +1055,12 @@ function FirewalldGenerator() {
   const destinationClause = useDestination ? ` destination address="${destination}"` : '';
   const command =
     protocol === 'icmp'
-      ? `sudo firewall-cmd ${mode === 'permanent' ? '--permanent ' : ''}--add-rich-rule='rule family="ipv4" source address="${source}"${destinationClause} protocol value="icmp" accept'`
-      : `sudo firewall-cmd ${mode === 'permanent' ? '--permanent ' : ''}--add-rich-rule='rule family="ipv4" source address="${source}"${destinationClause}${sourcePortClause} port port="${port}" protocol="${protocol}" accept'`;
+      ? `sudo firewall-cmd ${
+          mode === 'permanent' ? '--permanent ' : ''
+        }--add-rich-rule='rule family="ipv4" source address="${source}"${destinationClause} protocol value="icmp" accept'`
+      : `sudo firewall-cmd ${
+          mode === 'permanent' ? '--permanent ' : ''
+        }--add-rich-rule='rule family="ipv4" source address="${source}"${destinationClause}${sourcePortClause} port port="${port}" protocol="${protocol}" accept'`;
 
   return (
     <div className="space-y-6">
@@ -2352,7 +2368,11 @@ function DataTransferCalculator() {
               </Field>
               <Field>
                 <Label>Unit</Label>
-                <select className={inputClass()} value={sizeUnit} onChange={(event) => setSizeUnit(event.target.value as DataSizeUnit)}>
+                <select
+                  className={inputClass()}
+                  value={sizeUnit}
+                  onChange={(event) => setSizeUnit(event.target.value as DataSizeUnit)}
+                >
                   {dataSizeUnitList.map((unit) => (
                     <option key={unit} value={unit}>
                       {dataSizeUnitLabels[unit]}
@@ -2434,7 +2454,11 @@ function DataTransferCalculator() {
               </Field>
               <Field>
                 <Label>Unit</Label>
-                <select className={inputClass()} value={timeUnit} onChange={(event) => setTimeUnit(event.target.value as TransferTimeUnit)}>
+                <select
+                  className={inputClass()}
+                  value={timeUnit}
+                  onChange={(event) => setTimeUnit(event.target.value as TransferTimeUnit)}
+                >
                   {Object.keys(transferTimeUnits).map((unit) => (
                     <option key={unit} value={unit}>
                       {unit}
@@ -2675,9 +2699,17 @@ function CsrGenerator() {
   const hasSanError = sanErrors.some(Boolean);
   const hasRequiredSan = sans.some((san) => san.value.trim());
   const privateKeyPasswordError =
-    privateKeyOutputFormat === 'encrypted-pkcs8-pem' && !privateKeyPassword ? 'Password is required for encrypted private key export.' : '';
+    privateKeyOutputFormat === 'encrypted-pkcs8-pem' && !privateKeyPassword
+      ? 'Password is required for encrypted private key export.'
+      : '';
   const canGenerate =
-    !commonNameError && !countryError && !emailError && !privateKeyPasswordError && hasRequiredSan && !hasSanError && !isGenerating;
+    !commonNameError &&
+    !countryError &&
+    !emailError &&
+    !privateKeyPasswordError &&
+    hasRequiredSan &&
+    !hasSanError &&
+    !isGenerating;
   const selectedKeySizeNotes = getCsrKeySizeNotes(keyType);
 
   const addSan = () => {
@@ -2685,7 +2717,10 @@ function CsrGenerator() {
       return;
     }
 
-    setSans((currentSans) => [...currentSans, { id: Date.now(), value: csrExampleAdditionalDomain, isExample: true }]);
+    setSans((currentSans) => [
+      ...currentSans,
+      { id: Date.now(), value: csrExampleAdditionalDomain, isExample: true },
+    ]);
   };
   const removeSan = (id: number) => {
     setSans((currentSans) => {
@@ -2722,7 +2757,9 @@ function CsrGenerator() {
   const blurSan = (id: number, index: number) => {
     setSans((currentSans) =>
       currentSans.map((san) =>
-        san.id === id && !san.value.trim() ? { ...san, value: index === 0 ? csrExampleDomain : csrExampleAdditionalDomain, isExample: true } : san
+        san.id === id && !san.value.trim()
+          ? { ...san, value: index === 0 ? csrExampleDomain : csrExampleAdditionalDomain, isExample: true }
+          : san
       )
     );
 
@@ -2876,7 +2913,11 @@ function CsrGenerator() {
           <div className="grid gap-4 md:grid-cols-2">
             <Field>
               <Label>Organization</Label>
-              <input className={inputClass()} value={organization} onChange={(event) => setOrganization(event.target.value)} />
+              <input
+                className={inputClass()}
+                value={organization}
+                onChange={(event) => setOrganization(event.target.value)}
+              />
             </Field>
             <Field>
               <Label>Organizational Unit</Label>
@@ -2888,7 +2929,11 @@ function CsrGenerator() {
             </Field>
             <Field>
               <Label>Email</Label>
-              <input className={inputClass(Boolean(emailError))} value={email} onChange={(event) => setEmail(event.target.value)} />
+              <input
+                className={inputClass(Boolean(emailError))}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
               {emailError && <p className="text-xs leading-5 text-red-300">{emailError}</p>}
             </Field>
             <Field>
@@ -2922,13 +2967,21 @@ function CsrGenerator() {
             </Field>
             <Field>
               <Label>Locality / City</Label>
-              <input className={inputClass()} value={locality} onChange={(event) => setLocality(event.target.value)} />
+              <input
+                className={inputClass()}
+                value={locality}
+                onChange={(event) => setLocality(event.target.value)}
+              />
             </Field>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
             <Field>
               <Label>Key type *</Label>
-              <select className={inputClass()} value={keyType} onChange={(event) => changeKeyType(event.target.value as CsrKeyType)}>
+              <select
+                className={inputClass()}
+                value={keyType}
+                onChange={(event) => changeKeyType(event.target.value as CsrKeyType)}
+              >
                 <option value="rsa">RSA</option>
                 <option value="ec">ECDSA</option>
               </select>
@@ -3195,9 +3248,15 @@ async function createCsr(input: CreateCsrInput): Promise<CsrGeneratedOutput> {
     publicKeyDer,
     derContext(0, derAttributeExtensionRequest(input.sans))
   );
-  const signature = new Uint8Array(await crypto.subtle.sign(signingAlgorithm, keyPair.privateKey, certificationRequestInfo));
+  const signature = new Uint8Array(
+    await crypto.subtle.sign(signingAlgorithm, keyPair.privateKey, certificationRequestInfo)
+  );
   const encodedSignature = input.keyType === 'ec' ? derEncodeEcdsaSignature(signature) : signature;
-  const csrDer = derSequence(certificationRequestInfo, derSignatureAlgorithm(input.keyType, input.signatureHash), derBitString(encodedSignature));
+  const csrDer = derSequence(
+    certificationRequestInfo,
+    derSignatureAlgorithm(input.keyType, input.signatureHash),
+    derBitString(encodedSignature)
+  );
   const safeCommonName = createSafeFileName(input.commonName);
   const csrOutput = input.csrOutputFormat === 'pem-pkcs10' ? pemEncode('CERTIFICATE REQUEST', csrDer) : base64Encode(csrDer);
   const privateKeyOutput = await formatPrivateKeyOutput(input, privateKeyDer, privateJwk);
@@ -3229,7 +3288,10 @@ async function formatPrivateKeyOutput(input: CreateCsrInput, privateKeyDer: Uint
 }
 
 function createSafeFileName(value: string) {
-  return value.trim().replace(/^\*\./, 'wildcard.').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'request';
+  return (
+    value.trim().replace(/^\*\./, 'wildcard.').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') ||
+    'request'
+  );
 }
 
 function validateCsrCommonName(value: string) {
@@ -3251,7 +3313,9 @@ function validateCsrCommonName(value: string) {
 }
 
 function validateCsrCountry(value: string) {
-  return /^[A-Z]{2}$/.test(value.trim().toUpperCase()) ? '' : 'Country must be a two-letter ISO code, for example DE or US.';
+  return /^[A-Z]{2}$/.test(value.trim().toUpperCase())
+    ? ''
+    : 'Country must be a two-letter ISO code, for example DE or US.';
 }
 
 function validateCsrEmail(value: string) {
@@ -3336,7 +3400,10 @@ function isPublicIpv6Address(value: string) {
   const firstByte = bytes[0];
   const secondByte = bytes[1];
 
-  if (bytes.every((byte) => byte === 0) || bytes.every((byte, index) => (index === 15 ? byte === 1 : byte === 0))) {
+  if (
+    bytes.every((byte) => byte === 0) ||
+    bytes.every((byte, index) => (index === 15 ? byte === 1 : byte === 0))
+  ) {
     return false;
   }
 
@@ -3394,7 +3461,9 @@ function parseIpAddress(value: string) {
   const left = parts[0] ? parts[0].split(':') : [];
   const right = parts[1] ? parts[1].split(':') : [];
   const missingGroupCount = 8 - left.length - right.length;
-  const groups = [...left, ...Array(Math.max(missingGroupCount, 0)).fill('0'), ...right].map((group) => parseInt(group, 16));
+  const groups = [...left, ...Array(Math.max(missingGroupCount, 0)).fill('0'), ...right].map((group) =>
+    parseInt(group, 16)
+  );
   const bytes = new Uint8Array(16);
 
   groups.forEach((group, index) => {
@@ -3407,7 +3476,9 @@ function parseIpAddress(value: string) {
 
 function derAttributeExtensionRequest(sans: string[]) {
   const generalNames = derSequence(
-    ...sans.map((san) => (isValidIpAddress(san) ? derRaw(0x87, parseIpAddress(san)) : derRaw(0x82, asciiBytes(san.toLowerCase()))))
+    ...sans.map((san) =>
+      isValidIpAddress(san) ? derRaw(0x87, parseIpAddress(san)) : derRaw(0x82, asciiBytes(san.toLowerCase()))
+    )
   );
   const sanExtension = derSequence(derObjectIdentifier('2.5.29.17'), derOctetString(generalNames));
   const extensions = derSequence(sanExtension);
@@ -3427,7 +3498,9 @@ async function encryptPkcs8PrivateKey(privateKeyDer: Uint8Array, password: strin
     false,
     ['encrypt']
   );
-  const encryptedBytes = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-CBC', iv }, aesKey, toArrayBuffer(privateKeyDer)));
+  const encryptedBytes = new Uint8Array(
+    await crypto.subtle.encrypt({ name: 'AES-CBC', iv }, aesKey, toArrayBuffer(privateKeyDer))
+  );
   const pbes2Algorithm = derSequence(
     derObjectIdentifier('1.2.840.113549.1.5.13'),
     derSequence(
@@ -3449,7 +3522,10 @@ async function encryptPkcs8PrivateKey(privateKeyDer: Uint8Array, password: strin
 function derRsaPrivateKey(privateJwk: JsonWebKey) {
   const fields = ['n', 'e', 'd', 'p', 'q', 'dp', 'dq', 'qi'] as const;
 
-  return derSequence(derInteger(new Uint8Array([0])), ...fields.map((field) => derInteger(base64UrlDecode(privateJwk[field] ?? ''))));
+  return derSequence(
+    derInteger(new Uint8Array([0])),
+    ...fields.map((field) => derInteger(base64UrlDecode(privateJwk[field] ?? '')))
+  );
 }
 
 function derEcPrivateKey(privateJwk: JsonWebKey) {

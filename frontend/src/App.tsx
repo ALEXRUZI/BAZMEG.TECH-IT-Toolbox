@@ -138,8 +138,8 @@ const tools: Tool[] = [
   {
     id: 'tls-cert',
     name: 'TLS cert checker',
-    description: 'Inspect certificate chain, issuer, SANs, validity dates, and TLS endpoint details later.',
-    status: 'planned',
+    description: 'Inspect certificate issuer, SANs, validity dates, and TLS endpoint details.',
+    status: 'working',
     category: 'Network',
     tags: ['tls', 'ssl', 'certificate', 'cert', 'chain', 'issuer', 'sans', 'expiry', 'x509'],
   },
@@ -431,9 +431,10 @@ function renderTool(tool: Tool) {
       return <DataTransferCalculator />;
     case 'information-units':
       return <InformationUnitsCalculator />;
+    case 'tls-cert':
+      return <TlsCertificateChecker />;
     case 'headers':
     case 'dns':
-    case 'tls-cert':
     case 'rdap-whois':
     case 'redirect':
     case 'smtp-banner':
@@ -463,6 +464,184 @@ function PlannedTool({ tool }: { tool: Tool }) {
       </div>
     </Panel>
   );
+}
+
+type TlsCheckSuccess = {
+  ok: true;
+  host: string;
+  port: number;
+  resolvedAddresses: string[];
+  tls: {
+    authorized: boolean;
+    authorizationError: string | null;
+    protocol: string | null;
+    cipher: string | null;
+  };
+  certificate: {
+    subject: {
+      CN?: string;
+      [key: string]: string | undefined;
+    };
+    issuer: {
+      CN?: string;
+      O?: string;
+      [key: string]: string | undefined;
+    };
+    validFrom: string | null;
+    validTo: string | null;
+    daysRemaining: number | null;
+    serialNumber: string | null;
+    fingerprint256: string | null;
+    subjectAltName: string | null;
+  };
+  warnings: string[];
+};
+
+type TlsCheckErrorResponse = {
+  ok: false;
+  error: {
+    code: string;
+    message: string;
+  };
+};
+
+type TlsCheckResponse = TlsCheckSuccess | TlsCheckErrorResponse;
+
+function TlsCertificateChecker() {
+  const [host, setHost] = useState('example.com');
+  const [result, setResult] = useState<TlsCheckSuccess | null>(null);
+  const [error, setError] = useState<TlsCheckErrorResponse['error'] | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const hasHost = host.trim().length > 0;
+
+  async function checkCertificate() {
+    setIsLoading(true);
+    setResult(null);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/tools/tls-check', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          host: host.trim(),
+          port: 443,
+        }),
+      });
+      const body = (await response.json()) as TlsCheckResponse;
+
+      if (!response.ok || !body.ok) {
+        setError(body.ok ? {
+          code: 'TLS_CHECK_FAILED',
+          message: 'Certificate check failed.',
+        } : body.error);
+        return;
+      }
+
+      setResult(body);
+    } catch {
+      setError({
+        code: 'TLS_CHECK_FAILED',
+        message: 'Certificate check failed.',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return (
+    <Panel title="TLS/SSL certificate checker">
+      <p className="max-w-4xl text-sm leading-6 text-zinc-300">
+        Check the public certificate and TLS settings for an HTTPS endpoint.
+      </p>
+      <div className="mt-5 grid gap-4 md:grid-cols-[1fr_140px_auto]">
+        <Field>
+          <Label>Hostname</Label>
+          <input
+            className={inputClass(!hasHost)}
+            placeholder="example.com"
+            value={host}
+            onChange={(event) => setHost(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && hasHost && !isLoading) {
+                void checkCertificate();
+              }
+            }}
+          />
+          {!hasHost && <p className="text-xs leading-5 text-red-300">Hostname is required.</p>}
+        </Field>
+        <Field>
+          <Label>Port</Label>
+          <input className={inputClass(false, true)} readOnly value="443" />
+        </Field>
+        <div className="flex items-end">
+          <button
+            className="w-full rounded-xl border border-emerald-500/35 bg-emerald-500/15 px-5 py-2 text-sm font-semibold text-emerald-200 transition hover:border-emerald-400 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+            type="button"
+            onClick={() => void checkCertificate()}
+            disabled={!hasHost || isLoading}
+          >
+            {isLoading ? 'Checking...' : 'Check certificate'}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mt-5 rounded-2xl border border-red-400/25 bg-red-400/10 p-4">
+          <p className="text-sm font-semibold text-red-200">{error.code}</p>
+          <p className="mt-1 text-sm leading-6 text-red-100">{error.message}</p>
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-6 space-y-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <ResultItem label="Host" value={result.host} />
+            <ResultItem label="Port" value={String(result.port)} />
+            <ResultItem label="TLS authorized" value={result.tls.authorized ? 'true' : 'false'} />
+            <ResultItem label="Authorization error" value={result.tls.authorizationError} />
+            <ResultItem label="TLS protocol" value={result.tls.protocol} />
+            <ResultItem label="Cipher" value={result.tls.cipher} />
+            <ResultItem label="Subject CN" value={result.certificate.subject.CN} />
+            <ResultItem label="Issuer CN" value={result.certificate.issuer.CN} />
+            <ResultItem label="Issuer O" value={result.certificate.issuer.O} />
+            <ResultItem label="Valid from" value={result.certificate.validFrom} />
+            <ResultItem label="Valid to" value={result.certificate.validTo} />
+            <ResultItem label="Days remaining" value={formatOptionalNumber(result.certificate.daysRemaining)} />
+          </div>
+
+          <ResultBlock label="SHA256 fingerprint" value={result.certificate.fingerprint256} />
+          <ResultBlock label="Subject Alternative Names" value={result.certificate.subjectAltName} />
+          <ResultBlock label="Resolved addresses" value={result.resolvedAddresses.join('\n')} />
+          {result.warnings.length > 0 && <ResultBlock label="Warnings" value={result.warnings.join('\n')} />}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function ResultItem({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">{label}</p>
+      <p className="mt-2 break-words font-mono text-sm text-zinc-100">{value || '-'}</p>
+    </div>
+  );
+}
+
+function ResultBlock({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">{label}</p>
+      <pre className="mt-2 font-mono text-sm leading-6 text-zinc-100">{value || '-'}</pre>
+    </div>
+  );
+}
+
+function formatOptionalNumber(value: number | null) {
+  return value === null ? null : String(value);
 }
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {

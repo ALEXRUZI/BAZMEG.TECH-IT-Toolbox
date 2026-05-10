@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { checkTlsCertificate, TlsCheckError } from "./tools/tls-check.mjs";
 
 const app = Fastify({
   logger: true,
@@ -31,9 +32,33 @@ app.get("/healthz", async () => {
 app.get("/api/ping", async (request) => {
   return {
     ok: true,
-    message: "pong from Netcup backend",
-    clientIp: request.ip,
+    message: "toolbox API reachable",
   };
+});
+
+app.post("/api/tools/tls-check", async (request, reply) => {
+  try {
+    return await checkTlsCertificate(request.body || {});
+  } catch (error) {
+    const safeError = error instanceof TlsCheckError
+      ? error
+      : new TlsCheckError("TLS_CONNECTION_FAILED", "TLS connection failed.");
+
+    const statusCode = [
+      "INVALID_HOST",
+      "INVALID_PORT",
+      "DNS_LOOKUP_FAILED",
+      "BLOCKED_TARGET",
+    ].includes(safeError.code) ? 400 : 502;
+
+    return reply.code(statusCode).send({
+      ok: false,
+      error: {
+        code: safeError.code,
+        message: safeError.safeMessage,
+      },
+    });
+  }
 });
 
 const port = Number(process.env.PORT || 3001);

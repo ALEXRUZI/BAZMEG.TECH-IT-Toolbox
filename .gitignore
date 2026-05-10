@@ -5,13 +5,26 @@ node_modules/
 dist/
 build/
 
+# local deployment artifacts
+*.zip
+
 # env/secrets
 .env
 .env.*
 !.env.example
 
+# certificates / private keys
+*.key
+*.pem
+*.pfx
+*.p12
+
 # TypeScript
 *.tsbuildinfo
+
+# generated from vite.config.ts by TypeScript build
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # logs
 *.log
@@ -25,21 +38,5 @@ Thumbs.db
 .vscode/
 .idea/
 
-# certificates / private keys
-*.key
-*.pem
-*.pfx
-*.p12
-
+# local-only infrastructure notes/configs
 infrastructure/
-*.pem
-*.key
-*.pfx
-*.p12
-.env
-.env.*
-!.env.example
-
-# generated from vite.config.ts by TypeScript build
-frontend/vite.config.js
-frontend/vite.config.d.ts

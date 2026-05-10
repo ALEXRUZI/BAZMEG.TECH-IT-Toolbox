@@ -12,8 +12,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   const headers = new Headers(context.request.headers);
 
+  headers.delete("x-toolbox-client-ip");
+  headers.delete("x-toolbox-backend-secret");
+
+  const clientIp = context.request.headers.get("CF-Connecting-IP");
+
   headers.set("X-Toolbox-Backend-Secret", context.env.BACKEND_SECRET);
   headers.set("X-Forwarded-Host", incomingUrl.host);
+
+  if (clientIp) {
+    headers.set("X-Toolbox-Client-IP", clientIp);
+  }
 
   headers.delete("host");
   headers.delete("connection");

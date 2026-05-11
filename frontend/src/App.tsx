@@ -122,10 +122,10 @@ const tools: Tool[] = [
   {
     id: 'dns',
     name: 'DNS checker',
-    description: 'Prepare frontend shape for A, AAAA, MX, TXT, NS lookups.',
-    status: 'planned',
+    description: 'Run single-provider DNS checks or compare fixed public DNS providers.',
+    status: 'working',
     category: 'Network',
-    tags: ['dns', 'record', 'a', 'aaaa', 'mx', 'txt', 'ns', 'cname', 'lookup', 'domain'],
+    tags: ['dns', 'record', 'a', 'aaaa', 'mx', 'txt', 'ns', 'soa', 'caa', 'ptr', 'srv', 'cname', 'lookup', 'domain'],
   },
   {
     id: 'headers',
@@ -192,7 +192,7 @@ function App() {
       <div className="mx-auto flex max-w-[1600px] flex-col gap-8 px-4 py-6 sm:px-6 lg:px-10 2xl:px-12">
         <Header />
         <Hero />
-        <section className="grid gap-6 lg:grid-cols-[360px_1fr]">
+        <section className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
           <ToolList selectedToolId={selectedToolId} onSelect={setSelectedToolId} />
           <Workbench selectedTool={selectedTool} />
         </section>
@@ -421,7 +421,7 @@ function Workbench({ selectedTool }: { selectedTool: Tool | null }) {
     return <EmptyWorkbench />;
   }
 
-  return <section>{renderTool(selectedTool)}</section>;
+  return <section className="min-w-0">{renderTool(selectedTool)}</section>;
 }
 
 function renderTool(tool: Tool) {
@@ -450,8 +450,9 @@ function renderTool(tool: Tool) {
       return <InformationUnitsCalculator />;
     case 'tls-cert':
       return <TlsCertificateChecker />;
-    case 'headers':
     case 'dns':
+      return <DnsChecker />;
+    case 'headers':
     case 'rdap-whois':
     case 'redirect':
     case 'smtp-banner':
@@ -723,9 +724,9 @@ function TlsCertificateChecker() {
 
 function TlsResultSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-2xl border border-emerald-500/15 bg-zinc-900/70 p-4">
+    <section className="min-w-0 max-w-full rounded-2xl border border-emerald-500/15 bg-zinc-900/70 p-4">
       <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-200">{title}</h3>
-      <div className="mt-4">{children}</div>
+      <div className="mt-4 min-w-0">{children}</div>
     </section>
   );
 }
@@ -877,18 +878,20 @@ function normalizeTlsHostInput(value: string): string {
 
 function ResultItem({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+    <div className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">{label}</p>
-      <p className="mt-2 break-words font-mono text-sm text-zinc-100">{value || '-'}</p>
+      <p className="mt-2 break-words font-mono text-sm text-zinc-100 [overflow-wrap:anywhere]">{value || '-'}</p>
     </div>
   );
 }
 
 function ResultBlock({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+    <div className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">{label}</p>
-      <pre className="mt-2 font-mono text-sm leading-6 text-zinc-100">{value || '-'}</pre>
+      <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-sm leading-6 text-zinc-100 [overflow-wrap:anywhere]">
+        {value || '-'}
+      </pre>
     </div>
   );
 }
@@ -916,9 +919,9 @@ function parseSubjectAltNames(value: string | null) {
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <article className="rounded-3xl border border-emerald-500/15 bg-zinc-900/70 p-5 text-zinc-100 shadow-xl shadow-black/30">
+    <article className="min-w-0 max-w-full rounded-3xl border border-emerald-500/15 bg-zinc-900/70 p-5 text-zinc-100 shadow-xl shadow-black/30">
       <h2 className="text-xl font-semibold text-white">{title}</h2>
-      <div className="mt-5">{children}</div>
+      <div className="mt-5 min-w-0">{children}</div>
     </article>
   );
 }
@@ -949,6 +952,31 @@ function inputClass(hasError = false, isMuted = false) {
   const textClass = isMuted ? 'text-zinc-400' : 'text-zinc-100';
 
   return `w-full rounded-xl border ${borderClass} bg-zinc-950 px-3 py-2 text-sm ${textClass} outline-none transition`;
+}
+
+function ExampleTextInput({
+  value,
+  example,
+  hasError = false,
+  onChange,
+}: {
+  value: string;
+  example: string;
+  hasError?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [isFocused, setIsFocused] = useState(false);
+  const isShowingExample = !isFocused && !value;
+
+  return (
+    <input
+      className={inputClass(hasError, isShowingExample)}
+      value={isShowingExample ? example : value}
+      onFocus={() => setIsFocused(true)}
+      onChange={(event) => onChange(event.target.value)}
+      onBlur={() => setIsFocused(false)}
+    />
+  );
 }
 
 function validateIpv4Cidr(value: string) {
@@ -1033,8 +1061,11 @@ function validateZoneName(value: string) {
   return null;
 }
 
-function CommandBlock({ children }: { children: string }) {
+function CommandBlock({ children, scrollInside = false }: { children: string; scrollInside?: boolean }) {
   const [copied, setCopied] = useState(false);
+  const preClassName = scrollInside
+    ? 'max-h-[70vh] overflow-auto p-4 text-sm text-zinc-100'
+    : 'overflow-x-auto p-4 text-sm text-zinc-100';
 
   async function copyCommand() {
     await navigator.clipboard.writeText(children);
@@ -1043,7 +1074,7 @@ function CommandBlock({ children }: { children: string }) {
   }
 
   return (
-    <div className="mt-4 overflow-hidden rounded-2xl bg-zinc-950">
+    <div className="mt-4 max-w-full overflow-hidden rounded-2xl bg-zinc-950">
       <div className="flex items-center justify-end border-b border-white/10 px-3 py-2">
         <button
           className="rounded-lg border border-emerald-500/30 px-3 py-1 text-xs font-semibold text-emerald-300 transition hover:border-emerald-400 hover:bg-emerald-500/10"
@@ -1053,7 +1084,7 @@ function CommandBlock({ children }: { children: string }) {
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-      <pre className="p-4 text-sm text-zinc-100">{children}</pre>
+      <pre className={preClassName}>{children}</pre>
     </div>
   );
 }
@@ -1154,38 +1185,1564 @@ function CommonPortsHint({ onSelectPort }: { onSelectPort: (port: string) => voi
   );
 }
 
-function DnsMock() {
-  const [host, setHost] = useState('example.com');
-  const recordType = 'A';
+type DnsMode = 'single' | 'burst';
+type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SOA' | 'CAA' | 'PTR' | 'SRV';
+type DnsResponseView = 'simple' | 'advanced' | 'raw';
+type DnsTxtHelper = 'normal' | 'spf' | 'dkim' | 'dmarc' | 'acme';
+
+type DnsProviderSummary = {
+  id: string;
+  name: string;
+  profile?: string;
+  category?: string;
+};
+
+type DnsRecord = {
+  name: string;
+  type: string;
+  ttl?: number;
+  address?: string;
+  target?: string;
+  host?: string;
+  value?: string;
+  chunks?: string[];
+  preference?: number;
+  exchange?: string;
+  resolvedA?: string[];
+  resolvedAAAA?: string[];
+  priority?: number;
+  weight?: number;
+  port?: number;
+  flags?: number;
+  tag?: string;
+  [key: string]: unknown;
+};
+
+type DnsQuery = {
+  input: string;
+  queryName: string;
+  displayName: string;
+  recordType: DnsRecordType;
+  service: string | null;
+  protocol: string | null;
+  domain: string | null;
+};
+
+type DnsDiagnostic = {
+  id: string;
+  status?: string;
+  message?: string;
+  [key: string]: unknown;
+};
+
+type DnsSpfMechanism = {
+  token: string;
+  qualifier?: string | null;
+  result?: string | null;
+  mechanism?: string | null;
+  value?: string | null;
+  prefix?: string | null;
+  modifier?: boolean;
+  valid?: boolean;
+  [key: string]: unknown;
+};
+
+type DnsCacheMetadata = {
+  fromCache: boolean;
+  cacheScope: 'site';
+  cacheTtlSeconds?: number;
+  cacheAgeSeconds?: number;
+  cacheExpiresInSeconds?: number;
+};
+
+type DnsProviderResult = {
+  ok: boolean;
+  mode: DnsMode;
+  query: DnsQuery;
+  resolver: DnsProviderSummary;
+  provider: DnsProviderSummary;
+  responseCode: string | null;
+  durationMs: number;
+  status: string;
+  records: DnsRecord[];
+  answer: DnsRecord[];
+  authority: DnsRecord[];
+  additional: DnsRecord[];
+  diagnostics: DnsDiagnostic[];
+  warnings: string[];
+  dnssec: Record<string, unknown>;
+  raw: Record<string, unknown>;
+};
+
+type DnsCheckSuccess = DnsProviderResult & {
+  ok: true;
+  cache: DnsCacheMetadata;
+  resolver: DnsProviderSummary | {
+    group: string;
+    providers: DnsProviderSummary[];
+  };
+  provider: DnsProviderSummary | null;
+  providers?: DnsProviderResult[];
+};
+
+type DnsCheckErrorResponse = {
+  ok: false;
+  error: {
+    code: string;
+    message: string;
+  };
+};
+
+type DnsCheckResponse = DnsCheckSuccess | DnsCheckErrorResponse;
+
+const dnsRecordTypes: DnsRecordType[] = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'CAA', 'PTR', 'SRV'];
+
+const dnsSingleResolvers: DnsProviderSummary[] = [
+  { id: 'cloudflare', name: 'Cloudflare DNS' },
+  { id: 'google', name: 'Google DNS' },
+  { id: 'opendns', name: 'OpenDNS / Cisco' },
+  { id: 'quad9', name: 'Quad9' },
+  { id: 'fortiguard', name: 'FortiGuard DNS' },
+  { id: 'adguard', name: 'AdGuard DNS' },
+  { id: 'verisign', name: 'Verisign Public DNS' },
+  { id: 'dnswatch', name: 'DNS.WATCH' },
+  { id: 'comodo', name: 'Comodo Secure DNS' },
+  { id: 'level3', name: 'Level3 / Lumen' },
+  { id: 'neustar', name: 'Neustar UltraDNS' },
+];
+
+const dnsStatusLabels: Record<string, string> = {
+  ok: 'OK',
+  'different-answer': 'Different answer',
+  'no-record': 'No record',
+  nxdomain: 'NXDOMAIN',
+  servfail: 'SERVFAIL',
+  refused: 'REFUSED',
+  timeout: 'Timeout',
+  'possible-filtering': 'Possible filtering',
+  'possible-sinkhole': 'Possible sinkhole',
+  'possible-dnssec-failure': 'Possible DNSSEC issue',
+  'resolver-error': 'Resolver error',
+};
+
+const dnsTxtHelperLabels: Record<DnsTxtHelper, string> = {
+  normal: 'Normal TXT',
+  spf: 'SPF',
+  dkim: 'DKIM',
+  dmarc: 'DMARC',
+  acme: 'ACME challenge',
+};
+
+function DnsChecker() {
+  const [mode, setMode] = useState<DnsMode>('single');
+  const [recordType, setRecordType] = useState<DnsRecordType>('A');
+  const [resolverId, setResolverId] = useState('cloudflare');
+  const [queryInput, setQueryInput] = useState('');
+  const [txtHelper, setTxtHelper] = useState<DnsTxtHelper>('normal');
+  const [dkimSelector, setDkimSelector] = useState('');
+  const [srvService, setSrvService] = useState('');
+  const [srvProtocol, setSrvProtocol] = useState<'tcp' | 'udp'>('tcp');
+  const [srvDomain, setSrvDomain] = useState('');
+  const [dnssec, setDnssec] = useState(true);
+  const [responseView, setResponseView] = useState<DnsResponseView>('simple');
+  const [result, setResult] = useState<DnsCheckSuccess | null>(null);
+  const [error, setError] = useState<DnsCheckErrorResponse['error'] | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const validationError = validateDnsForm(recordType, queryInput, txtHelper, dkimSelector, srvService, srvDomain);
+  const previewName = getDnsPreviewName(recordType, queryInput, txtHelper, dkimSelector, srvService, srvProtocol, srvDomain);
+
+  async function runDnsCheck() {
+    const payload = buildDnsPayload({
+      mode,
+      recordType,
+      resolverId,
+      queryInput,
+      txtHelper,
+      dkimSelector,
+      srvService,
+      srvProtocol,
+      srvDomain,
+      dnssec,
+    });
+
+    setIsLoading(true);
+    setResult(null);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/tools/dns-check', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      const body = (await response.json()) as DnsCheckResponse;
+
+      if (!response.ok || !body.ok) {
+        const nextError = body.ok ? {
+          code: 'DNS_CHECK_FAILED',
+          message: 'DNS check failed.',
+        } : body.error;
+
+        setError(nextError);
+        return;
+      }
+
+      setResult(body);
+    } catch {
+      setError({
+        code: 'DNS_CHECK_FAILED',
+        message: 'DNS check failed.',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   return (
-    <Panel title="DNS checker mock">
-      <div className="grid gap-4 sm:grid-cols-[1fr_120px]">
+    <Panel title="DNS checker">
+      <p className="max-w-4xl text-sm leading-6 text-zinc-300">
+        Query DNS records through predefined providers, then switch views locally without running another check.
+      </p>
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        {[
+          ['single', 'Single DNS Provider Check'],
+          ['burst', 'Burst / Multi-Provider DNS Comparison'],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+              mode === value
+                ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-100'
+                : 'border-white/10 bg-zinc-950/60 text-zinc-300 hover:border-emerald-400/40 hover:text-emerald-200'
+            }`}
+            type="button"
+            onClick={() => setMode(value as DnsMode)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <DnsCacheNote mode={mode} />
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-[180px_minmax(0,1fr)]">
         <Field>
-          <Label>Hostname</Label>
-          <input
-            className={inputClass(false, host === 'example.com')}
-            value={host}
-            onChange={(event) => setHost(event.target.value)}
-            onFocus={() => clearExampleValue(host, 'example.com', setHost)}
-            onBlur={() => restoreExampleValue(host, 'example.com', setHost)}
-          />
-        </Field>
-        <Field>
-          <Label>Type</Label>
-          <select className={inputClass()} defaultValue={recordType}>
-            {['A', 'AAAA', 'MX', 'TXT', 'NS', 'CNAME'].map((type) => (
-              <option key={type}>{type}</option>
+          <Label>Record type</Label>
+          <select
+            className={inputClass()}
+            value={recordType}
+            onChange={(event) => setRecordType(event.target.value as DnsRecordType)}
+          >
+            {dnsRecordTypes.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
             ))}
           </select>
         </Field>
+
+        {mode === 'single' && (
+          <Field>
+            <Label>DNS provider</Label>
+            <select className={inputClass()} value={resolverId} onChange={(event) => setResolverId(event.target.value)}>
+              {dnsSingleResolvers.map((resolver) => (
+                <option key={resolver.id} value={resolver.id}>
+                  {resolver.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
       </div>
-      <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">
-        Browser cannot do real DNS queries directly. This must call your backend or Cloudflare Worker later.
+
+      <div className="mt-4">
+        <DnsRecordInput
+          dkimSelector={dkimSelector}
+          queryInput={queryInput}
+          recordType={recordType}
+          srvDomain={srvDomain}
+          srvProtocol={srvProtocol}
+          srvService={srvService}
+          txtHelper={txtHelper}
+          validationError={validationError}
+          onDkimSelectorChange={setDkimSelector}
+          onQueryChange={setQueryInput}
+          onSrvDomainChange={setSrvDomain}
+          onSrvProtocolChange={setSrvProtocol}
+          onSrvServiceChange={setSrvService}
+          onTxtHelperChange={setTxtHelper}
+        />
       </div>
-      <pre className="mt-4 rounded-2xl bg-zinc-950 p-4 text-sm text-zinc-100">{`example.com.  300  IN  A  93.184.216.34`}</pre>
+
+      {previewName && (
+        <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Generated query name</p>
+          <p className="mt-2 break-words font-mono text-sm text-emerald-200">{previewName}</p>
+        </div>
+      )}
+
+      {mode === 'single' && (
+        <label className="mt-4 flex items-center gap-3 text-sm font-medium text-zinc-300">
+          <input
+            checked={dnssec}
+            className="size-4 accent-emerald-500"
+            type="checkbox"
+            onChange={(event) => setDnssec(event.target.checked)}
+          />
+          Request DNSSEC diagnostics
+        </label>
+      )}
+
+      <div className="mt-5">
+        <button
+          className="rounded-xl border border-emerald-500/35 bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition hover:border-emerald-300 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500"
+          type="button"
+          onClick={() => void runDnsCheck()}
+          disabled={Boolean(validationError) || isLoading}
+          aria-busy={isLoading}
+        >
+          {isLoading ? 'Running...' : 'Run DNS Check'}
+        </button>
+      </div>
+
+      {result && <DnsCacheStatusNotice cache={result.cache} />}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-zinc-300">Response view:</span>
+        {(['simple', 'advanced', 'raw'] as const).map((view) => (
+          <button
+            key={view}
+            className={`rounded-full border px-3 py-1.5 text-sm font-semibold capitalize transition ${
+              responseView === view
+                ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-100'
+                : 'border-white/10 bg-zinc-950/60 text-zinc-300 hover:border-emerald-400/40 hover:text-emerald-200'
+            }`}
+            type="button"
+            onClick={() => setResponseView(view)}
+          >
+            {view}
+          </button>
+        ))}
+      </div>
+
+      {error && <DnsErrorBox error={error} />}
+
+      {result && (
+        <div className="mt-6">
+          {responseView === 'simple' && <DnsSimpleView result={result} />}
+          {responseView === 'advanced' && <DnsAdvancedView result={result} />}
+          {responseView === 'raw' && <CommandBlock scrollInside>{JSON.stringify(result, null, 2)}</CommandBlock>}
+        </div>
+      )}
     </Panel>
   );
+}
+
+function DnsCacheNote({ mode }: { mode: DnsMode }) {
+  return (
+    <div className="mt-5 space-y-3">
+      <div className="rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-100">
+        {mode === 'single'
+          ? 'Single-provider DNS checks are cached by this site for 60 seconds for the exact same query. Cached results are clearly marked with cache age and expiry.'
+          : 'Multi-provider DNS checks query several predefined DNS providers and are cached by this site for 5 minutes. Cached results can usually be shown without making another live DNS request.'}
+      </div>
+      {mode === 'burst' && (
+        <div className="rounded-2xl border border-amber-300/25 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100">
+          Deep DNSSEC diagnostics are disabled in Multi-Provider mode to keep results fast, reduce backend load, and prevent abuse. Use Single Provider mode for full DNSSEC diagnostics.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DnsRecordInput({
+  dkimSelector,
+  queryInput,
+  recordType,
+  srvDomain,
+  srvProtocol,
+  srvService,
+  txtHelper,
+  validationError,
+  onDkimSelectorChange,
+  onQueryChange,
+  onSrvDomainChange,
+  onSrvProtocolChange,
+  onSrvServiceChange,
+  onTxtHelperChange,
+}: {
+  dkimSelector: string;
+  queryInput: string;
+  recordType: DnsRecordType;
+  srvDomain: string;
+  srvProtocol: 'tcp' | 'udp';
+  srvService: string;
+  txtHelper: DnsTxtHelper;
+  validationError: string;
+  onDkimSelectorChange: (value: string) => void;
+  onQueryChange: (value: string) => void;
+  onSrvDomainChange: (value: string) => void;
+  onSrvProtocolChange: (value: 'tcp' | 'udp') => void;
+  onSrvServiceChange: (value: string) => void;
+  onTxtHelperChange: (value: DnsTxtHelper) => void;
+}) {
+  const visibleValidationError = shouldShowDnsValidationError(recordType, queryInput, txtHelper, dkimSelector, srvService, srvDomain)
+    ? validationError
+    : '';
+
+  if (recordType === 'SRV') {
+    return (
+      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_140px_minmax(0,1fr)]">
+        <Field>
+          <Label>Service</Label>
+          <ExampleTextInput
+            example="sip"
+            hasError={Boolean(visibleValidationError)}
+            value={srvService}
+            onChange={onSrvServiceChange}
+          />
+        </Field>
+        <Field>
+          <Label>Protocol</Label>
+          <select
+            className={inputClass()}
+            value={srvProtocol}
+            onChange={(event) => onSrvProtocolChange(event.target.value as 'tcp' | 'udp')}
+          >
+            <option value="tcp">_tcp</option>
+            <option value="udp">_udp</option>
+          </select>
+        </Field>
+        <Field>
+          <Label>Domain</Label>
+          <ExampleTextInput
+            example="example.com"
+            hasError={Boolean(visibleValidationError)}
+            value={srvDomain}
+            onChange={onSrvDomainChange}
+          />
+        </Field>
+        {visibleValidationError && <p className="text-xs leading-5 text-red-300 md:col-span-3">{visibleValidationError}</p>}
+      </div>
+    );
+  }
+
+  if (recordType === 'TXT') {
+    return (
+      <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+        <Field>
+          <Label>TXT helper</Label>
+          <select
+            className={inputClass()}
+            value={txtHelper}
+            onChange={(event) => onTxtHelperChange(event.target.value as DnsTxtHelper)}
+          >
+            {(Object.keys(dnsTxtHelperLabels) as DnsTxtHelper[]).map((helper) => (
+              <option key={helper} value={helper}>
+                {dnsTxtHelperLabels[helper]}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field>
+          <Label>{txtHelper === 'dkim' ? 'Domain' : 'Domain/FQDN'}</Label>
+          <ExampleTextInput
+            example="example.com"
+            hasError={Boolean(visibleValidationError)}
+            value={queryInput}
+            onChange={onQueryChange}
+          />
+        </Field>
+        {txtHelper === 'dkim' && (
+          <Field>
+            <Label>Selector</Label>
+            <ExampleTextInput
+              example="selector1"
+              hasError={Boolean(visibleValidationError)}
+              value={dkimSelector}
+              onChange={onDkimSelectorChange}
+            />
+          </Field>
+        )}
+        {visibleValidationError && (
+          <p className={`text-xs leading-5 text-red-300 ${txtHelper === 'dkim' ? 'md:col-span-2' : 'md:col-span-2'}`}>
+            {visibleValidationError}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Field>
+      <Label>{recordType === 'PTR' ? 'IP address' : 'Domain/FQDN'}</Label>
+      <ExampleTextInput
+        example={recordType === 'PTR' ? '8.8.8.8' : 'example.com'}
+        hasError={Boolean(visibleValidationError)}
+        value={queryInput}
+        onChange={onQueryChange}
+      />
+      {visibleValidationError && <p className="text-xs leading-5 text-red-300">{visibleValidationError}</p>}
+    </Field>
+  );
+}
+
+function DnsErrorBox({ error }: { error: DnsCheckErrorResponse['error'] }) {
+  const message = error.code === 'RATE_LIMITED'
+    ? 'Rate limit reached. Too many live DNS checks were made recently. Please try again later. Cached DNS results may still be available for repeated checks.'
+    : error.message;
+
+  return (
+    <div className="mt-5 rounded-2xl border border-red-300/35 bg-red-950/40 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-200">Error</p>
+      <p className="mt-2 text-sm leading-6 text-red-50">{message}</p>
+    </div>
+  );
+}
+
+function DnsSimpleView({ result }: { result: DnsCheckSuccess }) {
+  const records = result.mode === 'burst' ? [] : asDnsRecords(result.records);
+  const providers = asDnsProviders(result.providers);
+  const diagnostics = asDnsDiagnostics(result.diagnostics);
+  const warnings = asDnsStrings(result.warnings);
+  const txtDiagnostics = getDnsTxtDiagnostics(diagnostics);
+  const hasSpfExplanation = result.mode === 'single' && getDnsSpfDiagnostics(txtDiagnostics).length > 0;
+
+  return (
+    <div className="min-w-0 space-y-5">
+      <TlsResultSection title="Result">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <ResultItem label="Overall result" value={formatDnsStatus(result.status)} />
+          <ResultItem label="Response code" value={formatUnknown(result.responseCode)} />
+          <ResultItem label="Resolver/provider" value={formatDnsResolver(result)} />
+          <ResultItem label="Duration" value={formatMilliseconds(result.durationMs)} />
+        </div>
+      </TlsResultSection>
+
+      {result.mode === 'burst' ? (
+        <DnsProviderComparison providers={providers} />
+      ) : (
+        <TlsResultSection title="Main records">
+          <DnsRecordList records={records} emptyText="No requested records were returned." />
+        </TlsResultSection>
+      )}
+
+      {warnings.length > 0 && (
+        <TlsResultSection title="Important warnings">
+          <DnsStringList values={warnings} />
+        </TlsResultSection>
+      )}
+
+      {hasSpfExplanation && (
+        <TlsResultSection title="TXT/email diagnostics">
+          <DnsTxtDiagnostics diagnostics={txtDiagnostics} records={records} compact />
+        </TlsResultSection>
+      )}
+
+      {diagnostics.length > 0 && (
+        <TlsResultSection title="Important diagnostics">
+          <DnsDiagnosticList diagnostics={diagnostics.slice(0, 6)} />
+        </TlsResultSection>
+      )}
+    </div>
+  );
+}
+
+function DnsAdvancedView({ result }: { result: DnsCheckSuccess }) {
+  const answer = asDnsRecords(result.answer);
+  const authority = asDnsRecords(result.authority);
+  const additional = asDnsRecords(result.additional);
+  const providers = asDnsProviders(result.providers);
+  const diagnostics = asDnsDiagnostics(result.diagnostics);
+  const warnings = asDnsStrings(result.warnings);
+  const cnameRecords = answer.filter((record) => record.type === 'CNAME');
+  const mxDiagnostics = diagnostics.filter((diagnostic) => {
+    const diagnosticId = getDnsDiagnosticId(diagnostic);
+
+    return diagnosticId.startsWith('mx_') || diagnosticId.includes('mx');
+  });
+  const txtDiagnostics = getDnsTxtDiagnostics(diagnostics);
+
+  return (
+    <div className="min-w-0 space-y-5">
+      <TlsResultSection title="Query">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <ResultItem label="Input" value={result.query?.input} />
+          <ResultItem label="Query name" value={result.query?.queryName} />
+          <ResultItem label="Record type" value={result.query?.recordType} />
+          <ResultItem label="Service" value={result.query?.service} />
+          <ResultItem label="Protocol" value={result.query?.protocol} />
+          <ResultItem label="Domain" value={result.query?.domain} />
+        </div>
+      </TlsResultSection>
+
+      <TlsResultSection title="Response metadata">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <ResultItem label="Status" value={formatDnsStatus(result.status)} />
+          <ResultItem label="Response code" value={formatUnknown(result.responseCode)} />
+          <ResultItem label="Duration" value={formatMilliseconds(result.durationMs)} />
+          <ResultItem label="Mode" value={result.mode} />
+        </div>
+      </TlsResultSection>
+
+      <TlsResultSection title="Resolver metadata">
+        <pre className="max-w-full whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-zinc-950 p-4 text-sm leading-6 text-zinc-100 [overflow-wrap:anywhere]">
+          {JSON.stringify({ resolver: result.resolver, provider: result.provider }, null, 2)}
+        </pre>
+      </TlsResultSection>
+
+      {result.mode === 'burst' && <DnsProviderComparison providers={providers} />}
+
+      <TlsResultSection title="Answer section">
+        <DnsRecordList records={answer} emptyText="No answer records were returned." />
+      </TlsResultSection>
+
+      <TlsResultSection title="Authority section">
+        <DnsRecordList records={authority} emptyText="No authority records were returned." />
+      </TlsResultSection>
+
+      <TlsResultSection title="Additional section">
+        <DnsRecordList records={additional} emptyText="No additional records were returned." />
+      </TlsResultSection>
+
+      <TlsResultSection title="DNSSEC diagnostics">
+        <pre className="max-w-full whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-zinc-950 p-4 text-sm leading-6 text-zinc-100 [overflow-wrap:anywhere]">
+          {JSON.stringify(result.dnssec, null, 2)}
+        </pre>
+      </TlsResultSection>
+
+      {mxDiagnostics.length > 0 && (
+        <TlsResultSection title="MX diagnostics">
+          <DnsDiagnosticList diagnostics={mxDiagnostics} />
+        </TlsResultSection>
+      )}
+
+      {result.mode === 'single' && txtDiagnostics.length > 0 && (
+        <TlsResultSection title="TXT/email diagnostics">
+          <DnsTxtDiagnostics diagnostics={txtDiagnostics} records={answer} warnings={warnings} />
+        </TlsResultSection>
+      )}
+
+      {cnameRecords.length > 0 && (
+        <TlsResultSection title="CNAME chain">
+          <DnsRecordList records={cnameRecords} emptyText="No CNAME records were returned." />
+        </TlsResultSection>
+      )}
+
+      <TlsResultSection title="All diagnostics">
+        <DnsDiagnosticList diagnostics={diagnostics} />
+      </TlsResultSection>
+
+      <TlsResultSection title="All warnings">
+        <DnsStringList values={warnings} />
+      </TlsResultSection>
+    </div>
+  );
+}
+
+function DnsCacheStatusNotice({ cache }: { cache: DnsCacheMetadata }) {
+  const cacheDetails = [
+    ['Served from this site\'s cache', cache.fromCache ? 'Yes' : 'No'],
+    ['Cache age', formatSeconds(cache.cacheAgeSeconds)],
+    ['Expires in', formatSeconds(cache.cacheExpiresInSeconds)],
+    ['Cache TTL', formatSeconds(cache.cacheTtlSeconds)],
+  ].filter((detail): detail is [string, string] => Boolean(detail[1]));
+
+  return (
+    <aside className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-sm text-emerald-50">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200">Cache status</p>
+          <p className="mt-1 font-semibold text-emerald-50">
+            {cache.fromCache ? 'Served from this site\'s cache' : 'Live DNS check'}
+          </p>
+        </div>
+        <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+          {cacheDetails.map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-200/80">{label}</dt>
+              <dd className="mt-0.5 font-mono text-sm text-emerald-50">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </aside>
+  );
+}
+
+function DnsProviderComparison({ providers }: { providers?: DnsProviderResult[] | null }) {
+  const safeProviders = asDnsProviders(providers);
+
+  if (safeProviders.length === 0) {
+    return (
+      <TlsResultSection title="Provider comparison">
+        <p className="text-sm text-zinc-400">No provider comparison data was returned.</p>
+      </TlsResultSection>
+    );
+  }
+
+  return (
+    <TlsResultSection title="Provider comparison">
+      <div className="grid min-w-0 gap-3">
+        {safeProviders.map((provider, index) => {
+          const resolver = provider.resolver || provider.provider;
+          const records = asDnsRecords(provider.records);
+          const warnings = asDnsStrings(provider.warnings);
+
+          return (
+            <article key={resolver?.id || `provider-${index}`} className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <h4 className="break-words text-sm font-semibold text-zinc-100 [overflow-wrap:anywhere]">
+                    {resolver?.name || 'Unknown provider'}
+                  </h4>
+                  <p className="mt-1 break-words text-xs uppercase tracking-[0.14em] text-zinc-500 [overflow-wrap:anywhere]">
+                    {resolver?.profile || resolver?.category || 'Provider'}
+                  </p>
+                </div>
+                <span className="w-fit rounded-full border border-emerald-400/25 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+                  {formatDnsStatus(provider.status) || 'Unknown'}
+                </span>
+              </div>
+              <dl className="mt-4 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <DnsDetailItem label="Response" value={provider.responseCode || provider.status || '-'} mono />
+                <DnsDetailItem label="Records" value={formatDnsRecordValues(records)} />
+                <DnsDetailItem label="TTL" value={formatDnsTtls(records)} mono />
+                <DnsDetailItem label="Duration" value={formatMilliseconds(provider.durationMs) || '-'} mono />
+                <DnsDetailItem label="Warnings" value={warnings.length ? warnings.join(' ') : '-'} />
+              </dl>
+            </article>
+          );
+        })}
+      </div>
+    </TlsResultSection>
+  );
+}
+
+function DnsRecordList({ records, emptyText }: { records?: DnsRecord[] | null; emptyText: string }) {
+  const safeRecords = asDnsRecords(records);
+
+  if (safeRecords.length === 0) {
+    return <p className="text-sm text-zinc-400">{emptyText}</p>;
+  }
+
+  return (
+    <div className="min-w-0 space-y-3">
+      {safeRecords.map((record, index) => (
+        <article key={`${record.name || 'record'}-${record.type || 'unknown'}-${index}`} className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+          <dl className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <DnsDetailItem label="Type" value={record.type || 'Record'} />
+            <DnsDetailItem label="Name" value={record.name || '-'} mono />
+            <DnsDetailItem label="TTL" value={record.ttl === undefined ? '-' : `${record.ttl} seconds`} mono />
+            <DnsDetailItem label="Value" value={formatDnsRecord(record)} mono />
+            {record.type === 'MX' && (
+              <>
+                <DnsDetailItem label="Preference" value={formatUnknown(record.preference) || '-'} mono />
+                <DnsDetailItem label="Exchange" value={record.exchange || '-'} mono />
+                <DnsDetailItem label="Resolved A records" value={record.resolvedA?.join(', ') || '-'} mono />
+                <DnsDetailItem label="Resolved AAAA records" value={record.resolvedAAAA?.join(', ') || '-'} mono />
+              </>
+            )}
+          </dl>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function DnsDetailItem({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">{label}</dt>
+      <dd className={`mt-1 break-words text-sm leading-6 text-zinc-100 [overflow-wrap:anywhere] ${mono ? 'font-mono' : ''}`}>
+        {value || '-'}
+      </dd>
+    </div>
+  );
+}
+
+function DnsDiagnosticList({ diagnostics }: { diagnostics?: DnsDiagnostic[] | null }) {
+  const safeDiagnostics = asDnsDiagnostics(diagnostics);
+
+  if (safeDiagnostics.length === 0) {
+    return <p className="text-sm text-zinc-400">No diagnostics were returned.</p>;
+  }
+
+  return (
+    <div className="min-w-0 space-y-3">
+      {safeDiagnostics.map((diagnostic, index) => {
+        const diagnosticId = getDnsDiagnosticId(diagnostic);
+
+        return (
+          <div key={`${diagnosticId}-${index}`} className="min-w-0 rounded-xl border border-white/10 bg-zinc-950/60 p-4">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <p className="break-words font-mono text-sm font-semibold text-zinc-100 [overflow-wrap:anywhere]">
+                {formatDiagnosticName(diagnosticId)}
+              </p>
+              {diagnostic.status && (
+                <span className="rounded-full border border-white/10 bg-zinc-900 px-2 py-0.5 text-xs font-semibold text-zinc-300">
+                  {diagnostic.status}
+                </span>
+              )}
+            </div>
+            {diagnostic.message && (
+              <p className="mt-2 break-words text-sm leading-6 text-zinc-300 [overflow-wrap:anywhere]">{diagnostic.message}</p>
+            )}
+            <pre className="mt-3 max-w-full whitespace-pre-wrap break-words text-xs leading-5 text-zinc-300 [overflow-wrap:anywhere]">
+              {JSON.stringify(diagnostic, null, 2)}
+            </pre>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DnsTxtDiagnostics({
+  diagnostics,
+  records,
+  warnings,
+  compact = false,
+}: {
+  diagnostics?: DnsDiagnostic[] | null;
+  records?: DnsRecord[] | null;
+  warnings?: string[] | null;
+  compact?: boolean;
+}) {
+  const safeDiagnostics = asDnsDiagnostics(diagnostics);
+  const spfDiagnostics = getDnsSpfDiagnostics(safeDiagnostics);
+  const spfWarnings = asDnsStrings(warnings).filter((warning) => warning.toLowerCase().includes('spf'));
+  const groups = [
+    ['DKIM', safeDiagnostics.filter((diagnostic) => getDnsDiagnosticId(diagnostic) === 'dkim')],
+    ['DMARC', safeDiagnostics.filter((diagnostic) => getDnsDiagnosticId(diagnostic) === 'dmarc')],
+    ['Microsoft 365 verification', safeDiagnostics.filter((diagnostic) => getDnsDiagnosticId(diagnostic) === 'microsoft_365_verification')],
+    ['Google verification', safeDiagnostics.filter((diagnostic) => getDnsDiagnosticId(diagnostic) === 'google_verification')],
+    ["ACME / Let's Encrypt", safeDiagnostics.filter((diagnostic) => getDnsDiagnosticId(diagnostic) === 'acme_challenge')],
+  ] as const;
+
+  return (
+    <div className="min-w-0 space-y-4">
+      {spfDiagnostics.map((diagnostic, index) => (
+        <DnsSpfExplanation
+          key={`${String(diagnostic.value || 'spf')}-${index}`}
+          compact={compact}
+          diagnostic={diagnostic}
+          records={records}
+          warnings={spfWarnings}
+        />
+      ))}
+      {!compact && groups.map(([title, groupDiagnostics]) => (
+        <div key={title} className="min-w-0 rounded-xl border border-white/10 bg-zinc-950/60 p-4">
+          <h4 className="text-sm font-semibold text-zinc-100">{title}</h4>
+          <div className="mt-3 min-w-0">
+            <DnsDiagnosticList diagnostics={groupDiagnostics} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DnsSpfExplanation({
+  diagnostic,
+  records,
+  warnings,
+  compact,
+}: {
+  diagnostic: DnsDiagnostic;
+  records?: DnsRecord[] | null;
+  warnings?: string[] | null;
+  compact: boolean;
+}) {
+  const spfValue = typeof diagnostic.value === 'string' ? diagnostic.value : '';
+  const mechanisms = getDnsSpfMechanisms(diagnostic);
+  const ttl = getDnsSpfTtl(records, spfValue);
+  const visibleMechanisms = compact ? mechanisms.slice(0, 8) : mechanisms;
+  const hiddenCount = Math.max(0, mechanisms.length - visibleMechanisms.length);
+  const parserDetails = [
+    ['Lookup count estimate', formatUnknown(diagnostic.lookupCountEstimate)],
+    ['Include mechanisms', asDnsStrings(diagnostic.include as string[] | null | undefined).join(', ') || null],
+    ['Redirect', typeof diagnostic.redirect === 'string' ? diagnostic.redirect : null],
+    ['All mechanism', typeof diagnostic.all === 'string' ? diagnostic.all : null],
+  ].filter((detail): detail is [string, string] => Boolean(detail[1]));
+
+  return (
+    <article className="min-w-0 rounded-xl border border-white/10 bg-zinc-950/60 p-4">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h4 className="text-sm font-semibold text-zinc-100">SPF record</h4>
+          {spfValue && !compact && (
+            <p className="mt-2 break-words font-mono text-xs leading-5 text-zinc-400 [overflow-wrap:anywhere]">
+              {spfValue}
+            </p>
+          )}
+        </div>
+        {ttl !== null && (
+          <span className="w-fit rounded-full border border-emerald-400/25 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+            DNS TTL: {formatDnsTtlShort(ttl)}
+          </span>
+        )}
+      </div>
+
+      {ttl === null && (
+        <p className="mt-3 text-sm leading-6 text-zinc-400">
+          Resolver cache lifetime was not included with this TXT answer.
+        </p>
+      )}
+      {ttl !== null && !compact && (
+        <p className="mt-3 text-sm leading-6 text-zinc-400">
+          Resolvers may cache this TXT answer for up to {formatDnsTtlShort(ttl)}.
+        </p>
+      )}
+
+      <div className="mt-4 min-w-0 space-y-2">
+        {visibleMechanisms.length > 0 ? visibleMechanisms.map((mechanism, index) => (
+          <DnsSpfMechanismRow
+            key={`${mechanism.token || 'spf-token'}-${index}`}
+            defaultDomain={typeof diagnostic.queryName === 'string' ? diagnostic.queryName : null}
+            mechanism={mechanism}
+            isFirst={index === 0}
+          />
+        )) : (
+          <p className="text-sm text-zinc-400">No SPF mechanisms were parsed from this record.</p>
+        )}
+      </div>
+
+      {hiddenCount > 0 && (
+        <p className="mt-3 text-sm leading-6 text-zinc-400">
+          {hiddenCount} more SPF {hiddenCount === 1 ? 'rule is' : 'rules are'} shown in Advanced view.
+        </p>
+      )}
+
+      {!compact && warnings && warnings.length > 0 && (
+        <div className="mt-4 rounded-xl border border-amber-300/25 bg-amber-400/10 p-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-100">SPF warnings</p>
+          <div className="mt-2">
+            <DnsStringList values={warnings} />
+          </div>
+        </div>
+      )}
+
+      {!compact && parserDetails.length > 0 && (
+        <dl className="mt-4 grid min-w-0 gap-3 md:grid-cols-2">
+          {parserDetails.map(([label, value]) => (
+            <DnsDetailItem key={label} label={label} value={value} mono={label !== 'Lookup count estimate'} />
+          ))}
+        </dl>
+      )}
+    </article>
+  );
+}
+
+function DnsSpfMechanismRow({
+  mechanism,
+  defaultDomain,
+  isFirst,
+}: {
+  mechanism: DnsSpfMechanism;
+  defaultDomain: string | null;
+  isFirst: boolean;
+}) {
+  const warning = getDnsSpfMechanismWarning(mechanism);
+
+  return (
+    <div className={`min-w-0 rounded-xl border p-3 ${
+      warning
+        ? 'border-amber-300/30 bg-amber-400/10'
+        : 'border-white/10 bg-zinc-900/70'
+    }`}>
+      <div className="grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(180px,0.38fr)] lg:items-start">
+        <div className="min-w-0">
+          <p className="break-words text-sm leading-6 text-zinc-100 [overflow-wrap:anywhere]">
+            {describeDnsSpfMechanism(mechanism, defaultDomain, isFirst)}
+          </p>
+          {warning && (
+            <p className="mt-1 break-words text-xs font-semibold leading-5 text-amber-100 [overflow-wrap:anywhere]">
+              {warning}
+            </p>
+          )}
+        </div>
+        <code className="min-w-0 break-words rounded-lg border border-white/10 bg-zinc-950 px-2 py-1 font-mono text-xs leading-5 text-zinc-400 [overflow-wrap:anywhere]">
+          {mechanism.token || '-'}
+        </code>
+      </div>
+    </div>
+  );
+}
+
+function DnsStringList({ values }: { values?: string[] | null }) {
+  const safeValues = asDnsStrings(values);
+
+  if (safeValues.length === 0) {
+    return <p className="text-sm text-zinc-400">None.</p>;
+  }
+
+  return (
+    <ul className="min-w-0 space-y-2 text-sm leading-6 text-zinc-300">
+      {safeValues.map((value, index) => (
+        <li key={`${value}-${index}`} className="min-w-0 break-words rounded-xl border border-white/10 bg-zinc-950/60 px-3 py-2 [overflow-wrap:anywhere]">
+          {value}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function buildDnsPayload({
+  mode,
+  recordType,
+  resolverId,
+  queryInput,
+  txtHelper,
+  dkimSelector,
+  srvService,
+  srvProtocol,
+  srvDomain,
+  dnssec,
+}: {
+  mode: DnsMode;
+  recordType: DnsRecordType;
+  resolverId: string;
+  queryInput: string;
+  txtHelper: DnsTxtHelper;
+  dkimSelector: string;
+  srvService: string;
+  srvProtocol: 'tcp' | 'udp';
+  srvDomain: string;
+  dnssec: boolean;
+}) {
+  const payload: Record<string, unknown> = {
+    mode,
+    recordType,
+  };
+
+  if (mode === 'single') {
+    payload.resolverId = resolverId;
+    payload.dnssec = dnssec;
+  }
+
+  if (recordType === 'SRV') {
+    payload.service = srvService.trim();
+    payload.protocol = srvProtocol;
+    payload.domain = srvDomain.trim();
+    return payload;
+  }
+
+  payload.query = getDnsQueryInput(recordType, queryInput, txtHelper, dkimSelector);
+  return payload;
+}
+
+function getDnsQueryInput(recordType: DnsRecordType, queryInput: string, txtHelper: DnsTxtHelper, dkimSelector: string) {
+  const value = queryInput.trim();
+
+  if (recordType !== 'TXT') {
+    return value;
+  }
+
+  if (txtHelper === 'dkim') {
+    return `${dkimSelector.trim()}._domainkey.${value}`;
+  }
+
+  if (txtHelper === 'dmarc') {
+    return `_dmarc.${value}`;
+  }
+
+  if (txtHelper === 'acme') {
+    return `_acme-challenge.${value}`;
+  }
+
+  return value;
+}
+
+function getDnsPreviewName(
+  recordType: DnsRecordType,
+  queryInput: string,
+  txtHelper: DnsTxtHelper,
+  dkimSelector: string,
+  srvService: string,
+  srvProtocol: 'tcp' | 'udp',
+  srvDomain: string,
+) {
+  if (recordType === 'SRV') {
+    const service = srvService.trim().replace(/^_/, '');
+    const domain = srvDomain.trim();
+
+    return service && domain ? `_${service}._${srvProtocol}.${domain}` : '';
+  }
+
+  if (recordType === 'TXT' && txtHelper !== 'normal' && txtHelper !== 'spf') {
+    return getDnsQueryInput(recordType, queryInput, txtHelper, dkimSelector);
+  }
+
+  return '';
+}
+
+function validateDnsForm(
+  recordType: DnsRecordType,
+  queryInput: string,
+  txtHelper: DnsTxtHelper,
+  dkimSelector: string,
+  srvService: string,
+  srvDomain: string,
+) {
+  if (recordType === 'SRV') {
+    if (!srvService.trim() || !srvDomain.trim()) {
+      return 'Service and domain are required for SRV checks.';
+    }
+
+    if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,61}$/.test(srvService.trim().replace(/^_/, ''))) {
+      return 'Use a valid SRV service such as sip or xmpp-server.';
+    }
+
+    return isLikelyDnsName(srvDomain) ? '' : 'Enter a valid public domain for SRV checks.';
+  }
+
+  if (!queryInput.trim()) {
+    return recordType === 'PTR' ? 'IP address is required.' : 'Domain/FQDN is required.';
+  }
+
+  if (recordType === 'PTR') {
+    return isAllowedDnsPtrAddress(queryInput.trim()) ? '' : 'Enter a valid public IPv4 or IPv6 address.';
+  }
+
+  if (recordType === 'TXT' && txtHelper === 'dkim') {
+    if (!dkimSelector.trim()) {
+      return 'Selector is required for DKIM TXT checks.';
+    }
+
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(dkimSelector.trim())) {
+      return 'Use a valid DKIM selector.';
+    }
+  }
+
+  return isLikelyDnsName(queryInput) ? '' : 'Enter a valid public domain or FQDN.';
+}
+
+function shouldShowDnsValidationError(
+  recordType: DnsRecordType,
+  queryInput: string,
+  txtHelper: DnsTxtHelper,
+  dkimSelector: string,
+  srvService: string,
+  srvDomain: string,
+) {
+  if (recordType === 'SRV') {
+    return Boolean(srvService.trim() || srvDomain.trim());
+  }
+
+  if (recordType === 'TXT' && txtHelper === 'dkim') {
+    return Boolean(queryInput.trim() || dkimSelector.trim());
+  }
+
+  return Boolean(queryInput.trim());
+}
+
+function isLikelyDnsName(value: string) {
+  const normalizedValue = value.trim().replace(/\.$/, '').toLowerCase();
+
+  return (
+    normalizedValue.length > 0 &&
+    normalizedValue.length <= 253 &&
+    normalizedValue.includes('.') &&
+    !normalizedValue.includes('..') &&
+    !/[:/?#@[\]\\\s]/.test(normalizedValue) &&
+    normalizedValue.split('.').every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
+  );
+}
+
+function isAllowedDnsPtrAddress(value: string) {
+  if (!isValidIpAddress(value)) {
+    return false;
+  }
+
+  return isValidIpv4Address(value) ? !isBlockedDnsPtrIpv4Address(value) : !isBlockedDnsPtrIpv6Address(value);
+}
+
+function isBlockedDnsPtrIpv4Address(value: string) {
+  const address = ipv4AddressToNumber(value);
+  const blockedRanges: Array<[string, number]> = [
+    ['0.0.0.0', 8],
+    ['10.0.0.0', 8],
+    ['100.64.0.0', 10],
+    ['127.0.0.0', 8],
+    ['169.254.0.0', 16],
+    ['172.16.0.0', 12],
+    ['192.0.0.0', 24],
+    ['192.0.2.0', 24],
+    ['192.168.0.0', 16],
+    ['198.18.0.0', 15],
+    ['198.51.100.0', 24],
+    ['203.0.113.0', 24],
+    ['224.0.0.0', 4],
+    ['240.0.0.0', 4],
+    ['255.255.255.255', 32],
+    ['169.254.169.254', 32],
+  ];
+
+  return blockedRanges.some(([range, prefix]) => ipv4NumberInCidr(address, ipv4AddressToNumber(range), prefix));
+}
+
+function ipv4AddressToNumber(value: string) {
+  return value.split('.').reduce((address, octet) => ((address << 8) + Number(octet)) >>> 0, 0);
+}
+
+function ipv4NumberInCidr(address: number, range: number, prefix: number) {
+  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+
+  return (address & mask) === (range & mask);
+}
+
+function isBlockedDnsPtrIpv6Address(value: string) {
+  const address = parseIpAddress(value);
+  const blockedRanges: Array<[string, number]> = [
+    ['::', 128],
+    ['::1', 128],
+    ['100::', 64],
+    ['2001:db8::', 32],
+    ['fc00::', 7],
+    ['fe80::', 10],
+    ['ff00::', 8],
+  ];
+
+  return blockedRanges.some(([range, prefix]) => ipv6AddressInPrefix(address, parseIpAddress(range), prefix));
+}
+
+function ipv6AddressInPrefix(address: Uint8Array, range: Uint8Array, prefix: number) {
+  const fullBytes = Math.floor(prefix / 8);
+  const partialBits = prefix % 8;
+
+  for (let index = 0; index < fullBytes; index += 1) {
+    if (address[index] !== range[index]) {
+      return false;
+    }
+  }
+
+  if (partialBits === 0) {
+    return true;
+  }
+
+  const mask = (0xff << (8 - partialBits)) & 0xff;
+
+  return (address[fullBytes] & mask) === (range[fullBytes] & mask);
+}
+
+function formatDnsResolver(result: DnsCheckSuccess) {
+  if (result.provider) {
+    return result.provider.name;
+  }
+
+  if (result.resolver && 'providers' in result.resolver) {
+    const providers = Array.isArray(result.resolver.providers) ? result.resolver.providers : [];
+
+    return `${providers.length} predefined providers`;
+  }
+
+  return (result.resolver as DnsProviderSummary | null | undefined)?.name || 'Unknown provider';
+}
+
+function formatDnsStatus(status: string | null | undefined) {
+  return status ? dnsStatusLabels[status] || status : null;
+}
+
+function formatDnsTtls(records: DnsRecord[] | null | undefined) {
+  const ttls = Array.from(new Set(asDnsRecords(records).map((record) => record.ttl).filter((ttl): ttl is number => typeof ttl === 'number')));
+
+  return ttls.length ? ttls.join(', ') : '-';
+}
+
+function formatDnsRecordValues(records: DnsRecord[] | null | undefined) {
+  const safeRecords = asDnsRecords(records);
+
+  if (safeRecords.length === 0) {
+    return '-';
+  }
+
+  return safeRecords.map(formatDnsRecord).join('; ');
+}
+
+function formatDnsRecord(record: DnsRecord) {
+  if (record.type === 'A' || record.type === 'AAAA') {
+    return record.address || '-';
+  }
+
+  if (record.type === 'CNAME') {
+    return record.target || '-';
+  }
+
+  if (record.type === 'NS' || record.type === 'PTR') {
+    return record.host || '-';
+  }
+
+  if (record.type === 'TXT') {
+    return record.value || record.chunks?.join('') || '-';
+  }
+
+  if (record.type === 'MX') {
+    return `${record.preference ?? '-'} ${record.exchange || '-'}`;
+  }
+
+  if (record.type === 'SOA') {
+    return `mname=${formatUnknown(record.mname)} rname=${formatUnknown(record.rname)} serial=${formatUnknown(record.serial)}`;
+  }
+
+  if (record.type === 'SRV') {
+    return `${formatUnknown(record.priority)} ${formatUnknown(record.weight)} ${formatUnknown(record.port)} ${formatUnknown(record.target)}`;
+  }
+
+  if (record.type === 'CAA') {
+    return `${formatUnknown(record.flags)} ${formatUnknown(record.tag)} ${formatUnknown(record.value)}`;
+  }
+
+  return JSON.stringify(record);
+}
+
+function asDnsRecords(records: DnsRecord[] | null | undefined) {
+  return Array.isArray(records) ? records : [];
+}
+
+function asDnsDiagnostics(diagnostics: DnsDiagnostic[] | null | undefined) {
+  return Array.isArray(diagnostics) ? diagnostics : [];
+}
+
+function asDnsProviders(providers: DnsProviderResult[] | null | undefined) {
+  return Array.isArray(providers) ? providers : [];
+}
+
+function asDnsStrings(values: string[] | null | undefined) {
+  return Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string') : [];
+}
+
+function getDnsDiagnosticId(diagnostic: DnsDiagnostic) {
+  return typeof diagnostic.id === 'string' && diagnostic.id ? diagnostic.id : 'diagnostic';
+}
+
+function getDnsTxtDiagnostics(diagnostics: DnsDiagnostic[]) {
+  return diagnostics.filter((diagnostic) => [
+    'spf',
+    'dkim',
+    'dmarc',
+    'microsoft_365_verification',
+    'google_verification',
+    'acme_challenge',
+  ].includes(getDnsDiagnosticId(diagnostic)));
+}
+
+function getDnsSpfDiagnostics(diagnostics: DnsDiagnostic[] | null | undefined) {
+  return asDnsDiagnostics(diagnostics).filter((diagnostic) => getDnsDiagnosticId(diagnostic) === 'spf');
+}
+
+function getDnsSpfMechanisms(diagnostic: DnsDiagnostic) {
+  const detailed = Array.isArray(diagnostic.mechanismDetails) ? diagnostic.mechanismDetails : [];
+  const structured = detailed.filter(isDnsSpfMechanism);
+
+  if (structured.length > 0) {
+    return structured;
+  }
+
+  return Array.isArray(diagnostic.mechanisms)
+    ? diagnostic.mechanisms.filter((token): token is string => typeof token === 'string').map(parseDnsSpfToken)
+    : [];
+}
+
+function isDnsSpfMechanism(value: unknown): value is DnsSpfMechanism {
+  return typeof value === 'object' && value !== null && typeof (value as DnsSpfMechanism).token === 'string';
+}
+
+function parseDnsSpfToken(token: string): DnsSpfMechanism {
+  const qualifier = /^[+?~-]/.test(token) ? token[0] : '+';
+  const body = qualifier === token[0] ? token.slice(1) : token;
+  const modifierMatch = body.match(/^(redirect|exp)=(.+)$/i);
+
+  if (modifierMatch) {
+    return {
+      token,
+      qualifier: null,
+      result: null,
+      mechanism: modifierMatch[1].toLowerCase(),
+      value: modifierMatch[2],
+      modifier: true,
+      valid: true,
+    };
+  }
+
+  const mechanismMatch = body.match(/^([a-z0-9]+)(?::([^/]+))?(?:\/(.+))?$/i);
+
+  return {
+    token,
+    qualifier,
+    result: ({ '+': 'pass', '-': 'fail', '~': 'softfail', '?': 'neutral' } as Record<string, string>)[qualifier] || 'pass',
+    mechanism: mechanismMatch?.[1]?.toLowerCase() || 'unknown',
+    value: mechanismMatch?.[2] || null,
+    prefix: mechanismMatch?.[3] || null,
+    modifier: false,
+    valid: Boolean(mechanismMatch),
+  };
+}
+
+function getDnsSpfTtl(records: DnsRecord[] | null | undefined, spfValue: string) {
+  const txtRecords = asDnsRecords(records).filter((record) => record.type === 'TXT');
+  const matchingRecord = txtRecords.find((record) => {
+    const value = record.value || record.chunks?.join('') || '';
+
+    return value === spfValue || value.toLowerCase().startsWith('v=spf1');
+  });
+
+  return typeof matchingRecord?.ttl === 'number' && Number.isFinite(matchingRecord.ttl) ? matchingRecord.ttl : null;
+}
+
+function formatDnsTtlShort(seconds: number) {
+  if (seconds % 3600 === 0) {
+    return `${seconds / 3600}h`;
+  }
+
+  if (seconds % 60 === 0) {
+    return `${seconds / 60}m`;
+  }
+
+  return `${seconds}s`;
+}
+
+function describeDnsSpfMechanism(mechanism: DnsSpfMechanism, defaultDomain: string | null, isFirst: boolean) {
+  const kind = String(mechanism.mechanism || 'unknown').toLowerCase();
+  const value = typeof mechanism.value === 'string' && mechanism.value ? mechanism.value : null;
+  const prefix = typeof mechanism.prefix === 'string' && mechanism.prefix ? mechanism.prefix : null;
+  const domain = value || defaultDomain || 'this domain';
+  const lead = isFirst ? '' : 'Or else, ';
+  const sentenceVerb = (verb: string) => (isFirst ? `${verb.charAt(0).toUpperCase()}${verb.slice(1)}` : `${lead}${verb}`);
+
+  if (kind === 'redirect') {
+    return `${sentenceVerb('redirect')} SPF evaluation to ${domain} if no previous rule matches.`;
+  }
+
+  if (kind === 'exp') {
+    return `${sentenceVerb('use')} ${domain} for SPF failure explanation text.`;
+  }
+
+  if (kind === 'all') {
+    return `${lead}${describeDnsSpfAllResult(mechanism)}.`;
+  }
+
+  if (!mechanism.valid || kind === 'unknown') {
+    return 'Unknown or unsupported SPF mechanism.';
+  }
+
+  const result = getDnsSpfResultPhrase(mechanism, isFirst);
+
+  if (kind === 'include') {
+    return `${sentenceVerb('include')} the SPF record at ${domain} and ${getDnsSpfResultPhrase(mechanism, false)} if it matches the sender's IP.`;
+  }
+
+  if (kind === 'a') {
+    return `${lead}${result} if the email sender's IP is in the A or AAAA records of ${domain}${formatDnsSpfPrefix(prefix)}.`;
+  }
+
+  if (kind === 'mx') {
+    return `${lead}${result} if the email sender's IP is in the MX records of ${domain}${formatDnsSpfPrefix(prefix)}.`;
+  }
+
+  if (kind === 'ip4') {
+    return prefix
+      ? `${lead}${result} if the email sender's IP matches the IPv4 range ${domain}/${prefix}.`
+      : `${lead}${result} if the email sender's IP is ${domain}.`;
+  }
+
+  if (kind === 'ip6') {
+    return prefix
+      ? `${lead}${result} if the email sender's IP matches the IPv6 range ${domain}/${prefix}.`
+      : `${lead}${result} if the email sender's IP is ${domain}.`;
+  }
+
+  if (kind === 'exists') {
+    return `${lead}${result} if ${domain} resolves in DNS.`;
+  }
+
+  if (kind === 'ptr') {
+    return `${lead}${result} if reverse DNS validates against ${domain}.`;
+  }
+
+  return 'Unknown or unsupported SPF mechanism.';
+}
+
+function describeDnsSpfAllResult(mechanism: DnsSpfMechanism) {
+  const result = String(mechanism.result || 'pass').toLowerCase();
+
+  if (result === 'fail') {
+    return 'mark the email as fail';
+  }
+
+  if (result === 'softfail') {
+    return 'mark the email as soft fail';
+  }
+
+  if (result === 'neutral') {
+    return 'return neutral';
+  }
+
+  return 'pass all senders';
+}
+
+function getDnsSpfResultPhrase(mechanism: DnsSpfMechanism, isFirst: boolean) {
+  const result = String(mechanism.result || 'pass').toLowerCase();
+
+  if (result === 'fail') {
+    return isFirst ? 'Fail' : 'fail';
+  }
+
+  if (result === 'softfail') {
+    return isFirst ? 'Soft fail' : 'soft fail';
+  }
+
+  if (result === 'neutral') {
+    return isFirst ? 'Return neutral' : 'return neutral';
+  }
+
+  return isFirst ? 'Pass' : 'pass';
+}
+
+function formatDnsSpfPrefix(prefix: string | null) {
+  return prefix ? ` within prefix /${prefix}` : '';
+}
+
+function getDnsSpfMechanismWarning(mechanism: DnsSpfMechanism) {
+  const kind = String(mechanism.mechanism || 'unknown').toLowerCase();
+  const qualifier = mechanism.qualifier || '+';
+
+  if (kind === 'all' && qualifier === '+') {
+    return 'Dangerous/permissive: this passes all senders.';
+  }
+
+  if (kind === 'ptr') {
+    return 'Deprecated: ptr mechanisms are slow and unreliable.';
+  }
+
+  if (mechanism.valid === false || kind === 'unknown') {
+    return 'Invalid-looking or unsupported mechanism.';
+  }
+
+  return null;
+}
+
+function formatSeconds(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${value} seconds` : null;
+}
+
+function formatMilliseconds(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${value} ms` : null;
+}
+
+function formatUnknown(value: unknown) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  return typeof value === 'string' ? value : String(value);
+}
+
+function formatDiagnosticName(value: string) {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function FirewallGenerator() {

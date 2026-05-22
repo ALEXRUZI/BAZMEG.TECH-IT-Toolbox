@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ReactNode, RefObject } from 'react';
+import { toBlob } from 'html-to-image';
 
 type ToolId =
   | 'dns'
@@ -14,23 +15,50 @@ type ToolId =
   | 'information-units'
   | 'encoder'
   | 'epoch'
-  | 'headers'
+  | 'http-header-check'
   | 'tls-cert'
+  | 'mac-address-lookup'
   | 'rdap-whois'
-  | 'redirect'
   | 'smtp-banner'
-  | 'subnet';
+  | 'subnet'
+  | 'docker-run-compose'
+  | 'text-ascii-art'
+  | 'rsync-command-builder'
+  | 'scp-sftp-command-builder'
+  | 'openssl-cert-command-builder'
+  | 'systemd-service-timer-generator'
+  | 'ssh-config-generator'
+  | 'nginx-reverse-proxy-config-generator'
+  | 'text-compare'
+  | 'password-secret-generator';
 
 type Tool = {
   id: ToolId;
   name: string;
   description: string;
   status: 'working' | 'mock' | 'planned';
-  category: 'Network' | 'Linux' | 'Developer' | 'General IT';
+  category:
+    | 'Network'
+    | 'Linux'
+    | 'Developer'
+    | 'General IT'
+    | 'Network / DNS / Internet'
+    | 'Linux / Admin'
+    | 'Security / Certificates'
+    | 'Text / Utilities'
+    | 'Containers';
   tags: string[];
 };
 
 const tools: Tool[] = [
+  {
+    id: 'password-secret-generator',
+    name: 'Password / Secret Generator',
+    description: 'Generate passwords, passphrases, PINs, recovery codes, API keys, and tokens locally in your browser.',
+    status: 'working',
+    category: 'Security / Certificates',
+    tags: ['password', 'passphrase', 'secret', 'generator', 'security', 'api key', 'token', 'pin', 'recovery code'],
+  },
   {
     id: 'firewalld',
     name: 'Firewalld generator',
@@ -128,12 +156,12 @@ const tools: Tool[] = [
     tags: ['dns', 'record', 'a', 'aaaa', 'mx', 'txt', 'ns', 'soa', 'caa', 'ptr', 'srv', 'cname', 'lookup', 'domain'],
   },
   {
-    id: 'headers',
-    name: 'HTTP headers',
-    description: 'Inspect response headers through backend proxy later.',
-    status: 'planned',
+    id: 'http-header-check',
+    name: 'HTTP Header Checker',
+    description: 'Inspect response headers, security hints, status codes, and short redirect chains.',
+    status: 'working',
     category: 'Network',
-    tags: ['http', 'headers', 'response', 'server', 'web', 'proxy'],
+    tags: ['http', 'headers', 'response', 'server', 'web', 'proxy', 'redirect', 'status code', '301', '302'],
   },
   {
     id: 'tls-cert',
@@ -144,36 +172,108 @@ const tools: Tool[] = [
     tags: ['tls', 'ssl', 'certificate', 'cert', 'chain', 'issuer', 'sans', 'expiry', 'x509'],
   },
   {
+    id: 'mac-address-lookup',
+    name: 'MAC Address Lookup',
+    description: 'Look up vendor/OUI details for MAC addresses in a future network utility.',
+    status: 'planned',
+    category: 'Network / DNS / Internet',
+    tags: ['mac address', 'oui', 'vendor', 'network', 'ethernet', 'lookup'],
+  },
+  {
     id: 'rdap-whois',
-    name: 'RDAP / WHOIS lookup',
+    name: 'RDAP / WHOIS Lookup',
     description: 'Look up domain, IP, and ASN registration records through backend resolver later.',
     status: 'planned',
-    category: 'Network',
+    category: 'Network / DNS / Internet',
     tags: ['rdap', 'whois', 'domain', 'ip', 'asn', 'registrar', 'registry', 'lookup'],
   },
   {
-    id: 'redirect',
-    name: 'Redirect checker',
-    description: 'Trace HTTP redirect chains, status codes, and final URLs through backend proxy later.',
-    status: 'planned',
-    category: 'Network',
-    tags: ['redirect', 'http', 'status code', '301', '302', 'url', 'web', 'chain'],
-  },
-  {
     id: 'smtp-banner',
-    name: 'SMTP banner checker',
+    name: 'SMTP Banner Checker',
     description: 'Check SMTP greeting banners and basic mail-server reachability through backend service later.',
     status: 'planned',
-    category: 'Network',
+    category: 'Network / DNS / Internet',
     tags: ['smtp', 'mail', 'email', 'banner', 'mx', 'server', 'port 25'],
   },
   {
     id: 'subnet',
-    name: 'Subnet calculator',
+    name: 'Subnet Calculator',
     description: 'CIDR helper for quick subnet planning.',
     status: 'planned',
-    category: 'Network',
+    category: 'Network / DNS / Internet',
     tags: ['subnet', 'cidr', 'ip', 'ipv4', 'network', 'mask', 'calculator'],
+  },
+  {
+    id: 'docker-run-compose',
+    name: 'Docker Run to Docker Compose Converter',
+    description: 'Convert docker run commands into Compose service snippets in a future container helper.',
+    status: 'planned',
+    category: 'Containers',
+    tags: ['docker', 'docker run', 'docker compose', 'compose', 'container', 'yaml'],
+  },
+  {
+    id: 'text-ascii-art',
+    name: 'Text to ASCII Art',
+    description: 'Turn short text into copyable ASCII art banners later.',
+    status: 'planned',
+    category: 'Text / Utilities',
+    tags: ['text', 'ascii', 'ascii art', 'banner', 'figlet', 'utility'],
+  },
+  {
+    id: 'rsync-command-builder',
+    name: 'rsync Command Builder',
+    description: 'Build common rsync commands with archive, delete, SSH, and dry-run options later.',
+    status: 'planned',
+    category: 'Linux / Admin',
+    tags: ['rsync', 'sync', 'backup', 'ssh', 'linux', 'admin', 'command'],
+  },
+  {
+    id: 'scp-sftp-command-builder',
+    name: 'SCP / SFTP Command Builder',
+    description: 'Generate upload and download commands for SCP and SFTP workflows later.',
+    status: 'planned',
+    category: 'Linux / Admin',
+    tags: ['scp', 'sftp', 'ssh', 'file transfer', 'linux', 'admin', 'command'],
+  },
+  {
+    id: 'openssl-cert-command-builder',
+    name: 'OpenSSL Certificate Command Builder',
+    description: 'Build common OpenSSL certificate, key, CSR, and inspection commands later.',
+    status: 'planned',
+    category: 'Security / Certificates',
+    tags: ['openssl', 'certificate', 'tls', 'ssl', 'csr', 'private key', 'x509', 'security'],
+  },
+  {
+    id: 'systemd-service-timer-generator',
+    name: 'systemd Service / Timer Generator',
+    description: 'Generate service and timer unit files for Linux automation later.',
+    status: 'planned',
+    category: 'Linux / Admin',
+    tags: ['systemd', 'service', 'timer', 'linux', 'unit file', 'automation', 'admin'],
+  },
+  {
+    id: 'ssh-config-generator',
+    name: 'ssh_config Generator',
+    description: 'Build reusable SSH client config host blocks with ports, users, keys, and jump hosts later.',
+    status: 'planned',
+    category: 'Linux / Admin',
+    tags: ['ssh', 'ssh_config', 'config', 'jump host', 'identity file', 'linux', 'admin'],
+  },
+  {
+    id: 'nginx-reverse-proxy-config-generator',
+    name: 'NGINX Reverse Proxy Config Generator',
+    description: 'Generate common NGINX reverse proxy server blocks and headers later.',
+    status: 'planned',
+    category: 'Linux / Admin',
+    tags: ['nginx', 'reverse proxy', 'proxy', 'web server', 'linux', 'admin', 'config'],
+  },
+  {
+    id: 'text-compare',
+    name: 'Text A vs Text B Compare',
+    description: 'Compare two text snippets and highlight differences in a future utility.',
+    status: 'planned',
+    category: 'Text / Utilities',
+    tags: ['text', 'compare', 'diff', 'difference', 'utility'],
   },
 ];
 
@@ -450,13 +550,25 @@ function renderTool(tool: Tool) {
       return <InformationUnitsCalculator />;
     case 'tls-cert':
       return <TlsCertificateChecker />;
+    case 'http-header-check':
+      return <HttpHeaderChecker />;
     case 'dns':
       return <DnsChecker />;
-    case 'headers':
+    case 'password-secret-generator':
+      return <PasswordSecretGenerator />;
+    case 'mac-address-lookup':
     case 'rdap-whois':
-    case 'redirect':
     case 'smtp-banner':
     case 'subnet':
+    case 'docker-run-compose':
+    case 'text-ascii-art':
+    case 'rsync-command-builder':
+    case 'scp-sftp-command-builder':
+    case 'openssl-cert-command-builder':
+    case 'systemd-service-timer-generator':
+    case 'ssh-config-generator':
+    case 'nginx-reverse-proxy-config-generator':
+    case 'text-compare':
       return <PlannedTool tool={tool} />;
   }
 }
@@ -484,7 +596,1331 @@ function PlannedTool({ tool }: { tool: Tool }) {
   );
 }
 
+type SecretMode = 'password' | 'passphrase' | 'token' | 'pin' | 'recovery';
+type PasswordPresetId =
+  | 'general'
+  | 'strong'
+  | 'very-strong'
+  | 'practical'
+  | 'readable'
+  | 'compatible'
+  | 'custom';
+type PassphraseSeparator = 'hyphen' | 'underscore' | 'dot' | 'space' | 'none';
+type PassphraseCapitalization = 'lowercase' | 'title' | 'random';
+type TokenBits = 128 | 192 | 256;
+type TokenFormat = 'base64url' | 'hex' | 'uuid';
+type RecoveryCodeCount = 5 | 10 | 20;
+type RecoveryCodeFormat = 'digits' | 'alphanumeric';
+
+type PasswordOptions = {
+  preset: PasswordPresetId;
+  length: number;
+  lowercase: boolean;
+  uppercase: boolean;
+  numbers: boolean;
+  symbols: boolean;
+  safeSymbolsOnly: boolean;
+  avoidQwertyMismatch: boolean;
+  avoidVisualSimilar: boolean;
+  avoidQuoteLike: boolean;
+  avoidDashUnderscore: boolean;
+  avoidSlashBackslashPipe: boolean;
+  avoidHardPunctuation: boolean;
+  avoidShellSensitive: boolean;
+  avoidJsonEnvSensitive: boolean;
+  customExclude: string;
+};
+
+type SecretStrength = {
+  label: 'Very weak' | 'Weak' | 'Okay' | 'Strong' | 'Very strong';
+  className: string;
+  color: string;
+};
+
+const passwordPresets: Record<PasswordPresetId, Omit<PasswordOptions, 'preset'>> = {
+  general: {
+    length: 12,
+    lowercase: true,
+    uppercase: true,
+    numbers: true,
+    symbols: true,
+    safeSymbolsOnly: false,
+    avoidQwertyMismatch: false,
+    avoidVisualSimilar: false,
+    avoidQuoteLike: false,
+    avoidDashUnderscore: false,
+    avoidSlashBackslashPipe: false,
+    avoidHardPunctuation: false,
+    avoidShellSensitive: false,
+    avoidJsonEnvSensitive: false,
+    customExclude: '',
+  },
+  strong: {
+    length: 16,
+    lowercase: true,
+    uppercase: true,
+    numbers: true,
+    symbols: true,
+    safeSymbolsOnly: false,
+    avoidQwertyMismatch: false,
+    avoidVisualSimilar: false,
+    avoidQuoteLike: false,
+    avoidDashUnderscore: false,
+    avoidSlashBackslashPipe: false,
+    avoidHardPunctuation: false,
+    avoidShellSensitive: false,
+    avoidJsonEnvSensitive: false,
+    customExclude: '',
+  },
+  'very-strong': {
+    length: 24,
+    lowercase: true,
+    uppercase: true,
+    numbers: true,
+    symbols: true,
+    safeSymbolsOnly: false,
+    avoidQwertyMismatch: false,
+    avoidVisualSimilar: false,
+    avoidQuoteLike: false,
+    avoidDashUnderscore: false,
+    avoidSlashBackslashPipe: false,
+    avoidHardPunctuation: false,
+    avoidShellSensitive: false,
+    avoidJsonEnvSensitive: false,
+    customExclude: '',
+  },
+  practical: {
+    length: 28,
+    lowercase: true,
+    uppercase: true,
+    numbers: true,
+    symbols: true,
+    safeSymbolsOnly: true,
+    avoidQwertyMismatch: true,
+    avoidVisualSimilar: true,
+    avoidQuoteLike: true,
+    avoidDashUnderscore: false,
+    avoidSlashBackslashPipe: true,
+    avoidHardPunctuation: true,
+    avoidShellSensitive: true,
+    avoidJsonEnvSensitive: true,
+    customExclude: '',
+  },
+  readable: {
+    length: 18,
+    lowercase: true,
+    uppercase: true,
+    numbers: true,
+    symbols: false,
+    safeSymbolsOnly: false,
+    avoidQwertyMismatch: true,
+    avoidVisualSimilar: true,
+    avoidQuoteLike: true,
+    avoidDashUnderscore: true,
+    avoidSlashBackslashPipe: true,
+    avoidHardPunctuation: true,
+    avoidShellSensitive: false,
+    avoidJsonEnvSensitive: false,
+    customExclude: '',
+  },
+  compatible: {
+    length: 22,
+    lowercase: true,
+    uppercase: true,
+    numbers: true,
+    symbols: false,
+    safeSymbolsOnly: false,
+    avoidQwertyMismatch: false,
+    avoidVisualSimilar: false,
+    avoidQuoteLike: false,
+    avoidDashUnderscore: false,
+    avoidSlashBackslashPipe: false,
+    avoidHardPunctuation: false,
+    avoidShellSensitive: false,
+    avoidJsonEnvSensitive: false,
+    customExclude: '',
+  },
+  custom: {
+    length: 12,
+    lowercase: true,
+    uppercase: true,
+    numbers: true,
+    symbols: true,
+    safeSymbolsOnly: false,
+    avoidQwertyMismatch: false,
+    avoidVisualSimilar: false,
+    avoidQuoteLike: false,
+    avoidDashUnderscore: false,
+    avoidSlashBackslashPipe: false,
+    avoidHardPunctuation: false,
+    avoidShellSensitive: false,
+    avoidJsonEnvSensitive: false,
+    customExclude: '',
+  },
+};
+
+const passwordPresetLabels: Record<PasswordPresetId, string> = {
+  general: 'General compatible',
+  strong: 'Strong password',
+  'very-strong': 'Very strong password',
+  practical: 'Practical strong',
+  readable: 'Easy to read/type',
+  compatible: 'Maximum compatibility',
+  custom: 'Custom',
+};
+
+const passwordPresetInfo: Record<PasswordPresetId, string> = {
+  general:
+    'Balanced default. Uses lowercase, uppercase, numbers, and symbols at a 12-character length. Good compatibility, with moderate strength.',
+  strong:
+    'Longer general-purpose password using letters, numbers, and symbols. Higher entropy than the default, making it harder to guess, brute-force, or crack.',
+  'very-strong':
+    'High-entropy password with longer length and the full character set. Best when the target system accepts long passwords and symbols.',
+  practical:
+    'Uses uppercase, lowercase, numbers, and a limited safe-symbol set. Excludes common visual/keyboard gotchas, quote-like characters, slash/backslash/pipe, whitespace, and shell/config-hostile symbols. Length is increased automatically to keep entropy high.',
+  readable:
+    'Optimized for manual typing and reading. Avoids common lookalike characters and keyboard-layout gotchas. Uses longer length to compensate for the smaller character pool.',
+  compatible:
+    'Uses only letters and numbers with no symbols. Useful for restrictive or legacy systems. Length is increased to keep strength reasonable.',
+  custom:
+    'Your manually adjusted settings. Strength depends on the selected length, character groups, and exclusions.',
+};
+
+const passwordPresetMatchKeys: Array<keyof Omit<PasswordOptions, 'preset'>> = [
+  'length',
+  'lowercase',
+  'uppercase',
+  'numbers',
+  'symbols',
+  'safeSymbolsOnly',
+  'avoidQwertyMismatch',
+  'avoidVisualSimilar',
+  'avoidQuoteLike',
+  'avoidDashUnderscore',
+  'avoidSlashBackslashPipe',
+  'avoidHardPunctuation',
+  'avoidShellSensitive',
+  'avoidJsonEnvSensitive',
+  'customExclude',
+];
+
+const matchablePasswordPresets: PasswordPresetId[] = [
+  'general',
+  'strong',
+  'very-strong',
+  'practical',
+  'readable',
+  'compatible',
+];
+
+const passwordCharacters = {
+  lowercase: 'abcdefghijklmnopqrstuvwxyz',
+  uppercase: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  numbers: '0123456789',
+  symbols: '!@#$%^&*()-_=+[]{};:,.<>/?\\|`~\'"',
+  safeSymbols: '@#%+=?~',
+};
+
+const exclusionCharacters = {
+  avoidQwertyMismatch: 'yYzZ',
+  avoidVisualSimilar: '0Oo1lIi|5Ss2Zz8B6G',
+  avoidQuoteLike: '\'\"`´‘’“”',
+  avoidDashUnderscore: '-–—_',
+  avoidSlashBackslashPipe: '/\\|',
+  avoidHardPunctuation: '.,;:',
+  avoidShellSensitive: '$`"\'\\!&|;<>()[ ]{} ',
+  avoidJsonEnvSensitive: '$`"\'\\{}=:#',
+};
+
+const passphraseWords = [
+  'anchor',
+  'apricot',
+  'atlas',
+  'basil',
+  'beacon',
+  'birch',
+  'breeze',
+  'brick',
+  'cabin',
+  'canvas',
+  'cedar',
+  'cinder',
+  'cobalt',
+  'copper',
+  'coral',
+  'cotton',
+  'delta',
+  'ember',
+  'falcon',
+  'field',
+  'fjord',
+  'flint',
+  'forest',
+  'frost',
+  'galaxy',
+  'garden',
+  'ginger',
+  'glacier',
+  'harbor',
+  'hazel',
+  'indigo',
+  'island',
+  'ivory',
+  'juniper',
+  'kernel',
+  'lagoon',
+  'lantern',
+  'laurel',
+  'linen',
+  'maple',
+  'marble',
+  'meadow',
+  'meteor',
+  'midnight',
+  'mint',
+  'nectar',
+  'nickel',
+  'onyx',
+  'orbit',
+  'orchid',
+  'pebble',
+  'pepper',
+  'pixel',
+  'plasma',
+  'prairie',
+  'quartz',
+  'radar',
+  'raven',
+  'ripple',
+  'rocket',
+  'saffron',
+  'shadow',
+  'silver',
+  'signal',
+  'sparrow',
+  'spring',
+  'stable',
+  'stone',
+  'summit',
+  'tango',
+  'temple',
+  'timber',
+  'topaz',
+  'tundra',
+  'velvet',
+  'violet',
+  'walnut',
+  'willow',
+  'winter',
+  'xenon',
+  'yellow',
+  'zephyr',
+  'amber',
+  'binary',
+  'brook',
+  'carbon',
+  'cipher',
+  'clover',
+  'comet',
+  'crystal',
+  'dynamo',
+  'elm',
+  'fernet',
+  'granite',
+  'horizon',
+  'iris',
+  'jigsaw',
+  'keystone',
+  'lime',
+  'matrix',
+  'nebula',
+  'olive',
+  'phoenix',
+  'radius',
+  'river',
+  'sierra',
+  'solar',
+  'thunder',
+  'ultra',
+  'vector',
+  'wild',
+  'zinc',
+];
+
+const passphraseSeparatorValues: Record<PassphraseSeparator, string> = {
+  hyphen: '-',
+  underscore: '_',
+  dot: '.',
+  space: ' ',
+  none: '',
+};
+
+function PasswordSecretGenerator() {
+  const [mode, setMode] = useState<SecretMode>('password');
+  const [passwordOptions, setPasswordOptions] = useState<PasswordOptions>({
+    preset: 'general',
+    ...passwordPresets.general,
+  });
+  const [isPresetInfoOpen, setIsPresetInfoOpen] = useState(false);
+  const [passphraseWordCount, setPassphraseWordCount] = useState(4);
+  const [passphraseSeparator, setPassphraseSeparator] = useState<PassphraseSeparator>('hyphen');
+  const [passphraseCapitalization, setPassphraseCapitalization] = useState<PassphraseCapitalization>('lowercase');
+  const [passphraseAddNumber, setPassphraseAddNumber] = useState(false);
+  const [passphraseAddSymbol, setPassphraseAddSymbol] = useState(false);
+  const [tokenBits, setTokenBits] = useState<TokenBits>(256);
+  const [tokenFormat, setTokenFormat] = useState<TokenFormat>('base64url');
+  const [pinDigits, setPinDigits] = useState(6);
+  const [pinAvoidRepeated, setPinAvoidRepeated] = useState(true);
+  const [pinAvoidSequences, setPinAvoidSequences] = useState(true);
+  const [pinAvoidDates, setPinAvoidDates] = useState(true);
+  const [recoveryCount, setRecoveryCount] = useState<RecoveryCodeCount>(10);
+  const [recoveryFormat, setRecoveryFormat] = useState<RecoveryCodeFormat>('alphanumeric');
+  const [generatedValue, setGeneratedValue] = useState('');
+  const [generationError, setGenerationError] = useState('');
+  const [copyStatus, setCopyStatus] = useState('');
+
+  const passwordPool = buildPasswordPool(passwordOptions);
+  const passwordEntropy = estimatePasswordEntropy(passwordOptions.length, passwordPool.length);
+  const passwordStrength = getSecretStrength(passwordEntropy);
+  const currentPasswordPreset = getMatchingPasswordPreset(passwordOptions);
+  const currentEntropy =
+    mode === 'password'
+      ? passwordEntropy
+      : mode === 'passphrase'
+        ? estimatePassphraseEntropy(
+            passphraseWordCount,
+            passphraseCapitalization,
+            passphraseAddNumber,
+            passphraseAddSymbol
+          )
+        : mode === 'token'
+          ? tokenFormat === 'uuid'
+            ? 122
+            : tokenBits
+          : mode === 'pin'
+            ? pinDigits * Math.log2(10)
+            : recoveryCount * 8 * Math.log2(recoveryFormat === 'digits' ? 10 : 32);
+  const currentStrength = getSecretStrength(currentEntropy);
+  const modeLabel = getSecretModeLabel(mode);
+
+  useEffect(() => {
+    regenerateSecret();
+  }, [
+    mode,
+    passwordOptions,
+    passphraseWordCount,
+    passphraseSeparator,
+    passphraseCapitalization,
+    passphraseAddNumber,
+    passphraseAddSymbol,
+    tokenBits,
+    tokenFormat,
+    pinDigits,
+    pinAvoidRepeated,
+    pinAvoidSequences,
+    pinAvoidDates,
+    recoveryCount,
+    recoveryFormat,
+  ]);
+
+  function updatePasswordOptions(nextOptions: Partial<PasswordOptions>) {
+    setPasswordOptions((currentOptions) => {
+      const updatedOptions = {
+        ...currentOptions,
+        ...nextOptions,
+      };
+
+      return {
+        ...updatedOptions,
+        preset: getMatchingPasswordPreset(updatedOptions),
+      };
+    });
+  }
+
+  function applyPasswordPreset(preset: PasswordPresetId) {
+    setPasswordOptions({ preset, ...passwordPresets[preset] });
+  }
+
+  function avoidCommonConfusingCharacters() {
+    updatePasswordOptions({
+      avoidQwertyMismatch: true,
+      avoidVisualSimilar: true,
+      avoidQuoteLike: true,
+      avoidDashUnderscore: true,
+      avoidSlashBackslashPipe: true,
+      avoidHardPunctuation: true,
+    });
+  }
+
+  function regenerateSecret() {
+    try {
+      setGenerationError('');
+      setCopyStatus('');
+
+      if (mode === 'password') {
+        setGeneratedValue(generatePassword(passwordOptions));
+      } else if (mode === 'passphrase') {
+        setGeneratedValue(
+          generatePassphrase(
+            passphraseWordCount,
+            passphraseSeparator,
+            passphraseCapitalization,
+            passphraseAddNumber,
+            passphraseAddSymbol
+          )
+        );
+      } else if (mode === 'token') {
+        setGeneratedValue(generateToken(tokenBits, tokenFormat));
+      } else if (mode === 'pin') {
+        setGeneratedValue(generatePin(pinDigits, pinAvoidRepeated, pinAvoidSequences, pinAvoidDates));
+      } else {
+        setGeneratedValue(generateRecoveryCodes(recoveryCount, recoveryFormat).join('\n'));
+      }
+    } catch (error) {
+      setGeneratedValue('');
+      setGenerationError(error instanceof Error ? error.message : 'Could not generate a secret in this browser.');
+    }
+  }
+
+  async function copyGeneratedValue() {
+    if (!generatedValue) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(generatedValue);
+    setCopyStatus(mode === 'recovery' ? 'Copied all' : 'Copied');
+  }
+
+  function clearGeneratedValue() {
+    setGeneratedValue('');
+    setCopyStatus('');
+  }
+
+  return (
+    <Panel title="Password / Secret Generator">
+      <p className="max-w-4xl text-sm leading-6 text-zinc-300">
+        Generate passwords, passphrases, PINs, recovery codes, API keys, and tokens locally in your browser.
+      </p>
+      <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-100">
+        Generated locally in your browser using the Web Crypto API. Nothing is sent to the server. Security still depends
+        on your device, browser, screen, clipboard, extensions, and malware state.
+      </div>
+
+      <div className="mt-6 flex flex-wrap gap-2" aria-label="Secret type">
+        {(['password', 'passphrase', 'token', 'pin', 'recovery'] as SecretMode[]).map((secretMode) => (
+          <button
+            key={secretMode}
+            className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+              mode === secretMode
+                ? 'border-emerald-400/60 bg-emerald-500/15 text-emerald-100'
+                : 'border-white/10 bg-zinc-950/60 text-zinc-300 hover:border-emerald-400/40 hover:text-emerald-200'
+            }`}
+            type="button"
+            onClick={() => setMode(secretMode)}
+            aria-pressed={mode === secretMode}
+          >
+            {getSecretModeLabel(secretMode)}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.75fr)]">
+        <div className="min-w-0">
+          {mode === 'password' && (
+            <div className="grid gap-5">
+              <Field>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <Label>Password preset</Label>
+                  <button
+                    className="rounded-xl border border-emerald-500/30 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition hover:border-emerald-400 hover:bg-emerald-500/10"
+                    type="button"
+                    onClick={() => setIsPresetInfoOpen((isOpen) => !isOpen)}
+                    aria-expanded={isPresetInfoOpen}
+                    aria-controls="password-preset-info"
+                  >
+                    Preset info
+                  </button>
+                </div>
+                <select
+                  className={inputClass()}
+                  value={currentPasswordPreset}
+                  onChange={(event) => applyPasswordPreset(event.target.value as PasswordPresetId)}
+                >
+                  {(Object.keys(passwordPresetLabels) as PasswordPresetId[]).map((preset) => (
+                    <option key={preset} value={preset}>
+                      {passwordPresetLabels[preset]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              {isPresetInfoOpen && (
+                <div
+                  id="password-preset-info"
+                  className="rounded-2xl border border-emerald-400/20 bg-zinc-950/60 p-4 text-sm leading-6 text-zinc-300"
+                >
+                  <div className="grid gap-3">
+                    {(Object.keys(passwordPresetLabels) as PasswordPresetId[]).map((preset, index) => (
+                      <div key={preset} className={index === 0 ? '' : 'border-t border-white/10 pt-3'}>
+                        <p className="font-semibold text-zinc-100">{passwordPresetLabels[preset]}</p>
+                        <p className="mt-1 text-zinc-300">{passwordPresetInfo[preset]}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {currentPasswordPreset === 'practical' && (
+                <div className="rounded-2xl border border-emerald-400/20 bg-zinc-950/60 p-4 text-sm leading-6 text-zinc-300">
+                  Uses uppercase, lowercase, numbers, and a limited safe-symbol set. Excludes common visual/keyboard
+                  gotchas, quote-like characters, slash/backslash/pipe, whitespace, and shell/config-hostile symbols.
+                  Length is increased automatically to keep entropy high.
+                </div>
+              )}
+
+              <Field>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <Label>Length: {passwordOptions.length}</Label>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${passwordStrength.className}`}>
+                    {passwordStrength.label} | {formatEntropy(passwordEntropy)}
+                  </span>
+                </div>
+                <input
+                  className="w-full accent-emerald-500"
+                  type="range"
+                  min={6}
+                  max={64}
+                  value={passwordOptions.length}
+                  style={{ accentColor: passwordStrength.color }}
+                  onChange={(event) => updatePasswordOptions({ length: Number(event.target.value) })}
+                />
+              </Field>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <SecretCheckbox
+                  label="Lowercase"
+                  checked={passwordOptions.lowercase}
+                  onChange={(checked) => updatePasswordOptions({ lowercase: checked })}
+                />
+                <SecretCheckbox
+                  label="Uppercase"
+                  checked={passwordOptions.uppercase}
+                  onChange={(checked) => updatePasswordOptions({ uppercase: checked })}
+                />
+                <SecretCheckbox
+                  label="Numbers"
+                  checked={passwordOptions.numbers}
+                  onChange={(checked) => updatePasswordOptions({ numbers: checked })}
+                />
+                <SecretCheckbox
+                  label="Symbols"
+                  checked={passwordOptions.symbols}
+                  onChange={(checked) => updatePasswordOptions({ symbols: checked })}
+                />
+              </div>
+
+              <details className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-zinc-200">
+                  Exclusions and compatibility details
+                </summary>
+                <div className="mt-4 grid gap-4">
+                  <button
+                    className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:border-emerald-400 hover:bg-emerald-500/15"
+                    type="button"
+                    onClick={avoidCommonConfusingCharacters}
+                  >
+                    Avoid common confusing characters
+                  </button>
+                  <p className="text-xs leading-5 text-zinc-300">
+                    Excluded characters reduce the character pool. Increase length to keep strength high.
+                  </p>
+                  <div className="grid gap-3">
+                    <SecretCheckbox
+                      label="Avoid QWERTY/QWERTZ mismatch"
+                      detail={renderCharacterChips(['y', 'Y', 'z', 'Z'])}
+                      checked={passwordOptions.avoidQwertyMismatch}
+                      onChange={(checked) => updatePasswordOptions({ avoidQwertyMismatch: checked })}
+                    />
+                    <SecretCheckbox
+                      label="Avoid visually similar characters"
+                      detail={renderCharacterChips([
+                        '0',
+                        'O',
+                        'o',
+                        '1',
+                        'l',
+                        'I',
+                        'i',
+                        '|',
+                        '5',
+                        'S',
+                        's',
+                        '2',
+                        'Z',
+                        'z',
+                        '8',
+                        'B',
+                        '6',
+                        'G',
+                      ])}
+                      checked={passwordOptions.avoidVisualSimilar}
+                      onChange={(checked) => updatePasswordOptions({ avoidVisualSimilar: checked })}
+                    />
+                    <SecretCheckbox
+                      label="Avoid quote-like symbols"
+                      detail={renderCharacterChips(['\'', '"', '`', '´', '‘', '’', '“', '”'])}
+                      checked={passwordOptions.avoidQuoteLike}
+                      onChange={(checked) => updatePasswordOptions({ avoidQuoteLike: checked })}
+                    />
+                    <SecretCheckbox
+                      label="Avoid dash/underscore variants"
+                      detail={renderCharacterChips(['-', '–', '—', '_'])}
+                      checked={passwordOptions.avoidDashUnderscore}
+                      onChange={(checked) => updatePasswordOptions({ avoidDashUnderscore: checked })}
+                    />
+                    <SecretCheckbox
+                      label="Avoid slash/backslash/pipe"
+                      detail={renderCharacterChips(['/', '\\', '|'])}
+                      checked={passwordOptions.avoidSlashBackslashPipe}
+                      onChange={(checked) => updatePasswordOptions({ avoidSlashBackslashPipe: checked })}
+                    />
+                    <SecretCheckbox
+                      label="Avoid hard-to-read punctuation"
+                      detail={renderCharacterChips(['.', ',', ';', ':'])}
+                      checked={passwordOptions.avoidHardPunctuation}
+                      onChange={(checked) => updatePasswordOptions({ avoidHardPunctuation: checked })}
+                    />
+                  </div>
+
+                  <details className="rounded-xl border border-white/10 bg-zinc-950 p-4">
+                    <summary className="cursor-pointer text-sm font-semibold text-zinc-200">
+                      Advanced compatibility exclusions
+                    </summary>
+                    <div className="mt-4 grid gap-3">
+                      <SecretCheckbox
+                        label="Avoid shell-sensitive symbols"
+                        detail={renderCharacterChips([
+                          '$',
+                          '`',
+                          '"',
+                          '\'',
+                          '\\',
+                          '!',
+                          '&',
+                          '|',
+                          ';',
+                          '<',
+                          '>',
+                          '(',
+                          ')',
+                          '[',
+                          ']',
+                          '{',
+                          '}',
+                          'space',
+                        ])}
+                        checked={passwordOptions.avoidShellSensitive}
+                        onChange={(checked) => updatePasswordOptions({ avoidShellSensitive: checked })}
+                      />
+                      <SecretCheckbox
+                        label="Avoid JSON/.env-sensitive symbols where practical"
+                        detail={renderCharacterChips(['$', '`', '"', '\'', '\\', '{', '}', '=', ':', '#'])}
+                        checked={passwordOptions.avoidJsonEnvSensitive}
+                        onChange={(checked) => updatePasswordOptions({ avoidJsonEnvSensitive: checked })}
+                      />
+                      <SecretCheckbox
+                        label="Use limited safe-symbol set"
+                        checked={passwordOptions.safeSymbolsOnly}
+                        onChange={(checked) => updatePasswordOptions({ safeSymbolsOnly: checked })}
+                      />
+                      <Field>
+                        <Label>Custom exclude list</Label>
+                        <input
+                          className={inputClass()}
+                          value={passwordOptions.customExclude}
+                          onChange={(event) => updatePasswordOptions({ customExclude: event.target.value })}
+                        />
+                      </Field>
+                    </div>
+                  </details>
+                </div>
+              </details>
+            </div>
+          )}
+
+          {mode === 'passphrase' && (
+            <div className="grid gap-5">
+              <Field>
+                <Label>Word count: {passphraseWordCount}</Label>
+                <input
+                  className="w-full accent-emerald-500"
+                  type="range"
+                  min={3}
+                  max={12}
+                  value={passphraseWordCount}
+                  style={{ accentColor: currentStrength.color }}
+                  onChange={(event) => setPassphraseWordCount(Number(event.target.value))}
+                />
+              </Field>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field>
+                  <Label>Separator</Label>
+                  <select
+                    className={inputClass()}
+                    value={passphraseSeparator}
+                    onChange={(event) => setPassphraseSeparator(event.target.value as PassphraseSeparator)}
+                  >
+                    <option value="hyphen">Hyphen</option>
+                    <option value="underscore">Underscore</option>
+                    <option value="dot">Dot</option>
+                    <option value="space">Space</option>
+                    <option value="none">None</option>
+                  </select>
+                </Field>
+                <Field>
+                  <Label>Capitalization</Label>
+                  <select
+                    className={inputClass()}
+                    value={passphraseCapitalization}
+                    onChange={(event) => setPassphraseCapitalization(event.target.value as PassphraseCapitalization)}
+                  >
+                    <option value="lowercase">Lowercase</option>
+                    <option value="title">Title Case</option>
+                    <option value="random">Random case</option>
+                  </select>
+                </Field>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <SecretCheckbox
+                  label="Add number"
+                  checked={passphraseAddNumber}
+                  onChange={setPassphraseAddNumber}
+                />
+                <SecretCheckbox
+                  label="Add symbol"
+                  checked={passphraseAddSymbol}
+                  onChange={setPassphraseAddSymbol}
+                />
+              </div>
+            </div>
+          )}
+
+          {mode === 'token' && (
+            <div className="grid gap-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field>
+                  <Label>Strength / entropy</Label>
+                  <select
+                    className={inputClass()}
+                    value={tokenBits}
+                    onChange={(event) => setTokenBits(Number(event.target.value) as TokenBits)}
+                  >
+                    <option value={128}>128-bit</option>
+                    <option value={192}>192-bit</option>
+                    <option value={256}>256-bit</option>
+                  </select>
+                </Field>
+                <Field>
+                  <Label>Output format</Label>
+                  <select
+                    className={inputClass()}
+                    value={tokenFormat}
+                    onChange={(event) => setTokenFormat(event.target.value as TokenFormat)}
+                  >
+                    <option value="base64url">Base64url without padding</option>
+                    <option value="hex">Hex</option>
+                    <option value="uuid">UUID v4</option>
+                  </select>
+                </Field>
+              </div>
+              {tokenFormat === 'uuid' && (
+                <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4 text-sm leading-6 text-zinc-400">
+                  UUID v4 contains about 122 random bits. The 128/192/256-bit selector applies to base64url and hex
+                  tokens.
+                </div>
+              )}
+            </div>
+          )}
+
+          {mode === 'pin' && (
+            <div className="grid gap-5">
+              <Field>
+                <Label>Digit count: {pinDigits}</Label>
+                <input
+                  className="w-full accent-emerald-500"
+                  type="range"
+                  min={4}
+                  max={16}
+                  value={pinDigits}
+                  style={{ accentColor: currentStrength.color }}
+                  onChange={(event) => setPinDigits(Number(event.target.value))}
+                />
+              </Field>
+              <div className="grid gap-3">
+                <SecretCheckbox label="Avoid repeated digits" checked={pinAvoidRepeated} onChange={setPinAvoidRepeated} />
+                <SecretCheckbox label="Avoid simple sequences" checked={pinAvoidSequences} onChange={setPinAvoidSequences} />
+                <SecretCheckbox label="Avoid date-like patterns" checked={pinAvoidDates} onChange={setPinAvoidDates} />
+              </div>
+            </div>
+          )}
+
+          {mode === 'recovery' && (
+            <div className="grid gap-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field>
+                  <Label>Code count</Label>
+                  <select
+                    className={inputClass()}
+                    value={recoveryCount}
+                    onChange={(event) => setRecoveryCount(Number(event.target.value) as RecoveryCodeCount)}
+                  >
+                    <option value={5}>5</option>
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                  </select>
+                </Field>
+                <Field>
+                  <Label>Format</Label>
+                  <select
+                    className={inputClass()}
+                    value={recoveryFormat}
+                    onChange={(event) => setRecoveryFormat(event.target.value as RecoveryCodeFormat)}
+                  >
+                    <option value="digits">Digits</option>
+                    <option value="alphanumeric">Alphanumeric</option>
+                  </select>
+                </Field>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4 text-sm leading-6 text-zinc-400">
+                Codes are grouped for display, for example 1234-5678. Copy all keeps the same grouped format.
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Generated output</p>
+              <p className="mt-2 text-sm font-semibold text-zinc-200">{modeLabel}</p>
+            </div>
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${currentStrength.className}`}>
+              {currentStrength.label}
+            </span>
+          </div>
+          <div className="mt-4 rounded-xl border border-white/10 bg-zinc-950 p-3">
+            {generationError ? (
+              <p className="text-sm leading-6 text-red-300">{generationError}</p>
+            ) : generatedValue ? (
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-sm leading-6 text-emerald-200 [overflow-wrap:anywhere]">
+                {generatedValue}
+              </pre>
+            ) : (
+              <p className="text-sm leading-6 text-zinc-500">Cleared. Use Regenerate to create a new value.</p>
+            )}
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <button
+              className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:border-emerald-400 hover:bg-emerald-500/15"
+              type="button"
+              onClick={regenerateSecret}
+            >
+              {mode === 'recovery' ? 'Regenerate all' : 'Regenerate'}
+            </button>
+            <button
+              className="rounded-xl border border-emerald-500/30 px-4 py-2 text-sm font-semibold text-emerald-300 transition hover:border-emerald-400 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              onClick={copyGeneratedValue}
+              disabled={!generatedValue || Boolean(generationError)}
+            >
+              {copyStatus || (mode === 'recovery' ? 'Copy all' : 'Copy')}
+            </button>
+            <button
+              className="rounded-xl border border-white/10 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-red-400/50 hover:text-red-200"
+              type="button"
+              onClick={clearGeneratedValue}
+            >
+              Clear
+            </button>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <ResultItem label="Profile" value={getSecretProfileLabel(mode, passwordOptions, tokenBits, tokenFormat)} />
+            <ResultItem label="Entropy estimate" value={formatEntropy(currentEntropy)} />
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function SecretCheckbox({
+  label,
+  detail,
+  checked,
+  onChange,
+}: {
+  label: ReactNode;
+  detail?: ReactNode;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-zinc-950/60 p-3 text-sm leading-6 text-zinc-300">
+      <input
+        className="mt-1 size-4 accent-emerald-500"
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="min-w-0">
+        <span>{label}</span>
+        {detail && (
+          <span className="mt-2 block min-w-0">
+            {detail}
+          </span>
+        )}
+      </span>
+    </label>
+  );
+}
+
+function renderCharacterChips(items: string[]) {
+  return (
+    <span className="flex min-w-0 flex-wrap gap-1.5" aria-label={`Excluded characters: ${items.join(' ')}`}>
+      {items.map((item, index) => (
+        <span
+          key={`${item}-${index}`}
+          className="inline-flex max-w-full items-center rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-2 py-1 font-mono text-xs font-semibold leading-none text-zinc-100 shadow-sm shadow-black/20"
+          title={item === 'space' ? 'space character' : item}
+        >
+          {item}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function generatePassword(options: PasswordOptions) {
+  const excludeSet = buildPasswordExcludeSet(options);
+  const groups = [
+    options.lowercase ? filterCharacters(passwordCharacters.lowercase, excludeSet) : '',
+    options.uppercase ? filterCharacters(passwordCharacters.uppercase, excludeSet) : '',
+    options.numbers ? filterCharacters(passwordCharacters.numbers, excludeSet) : '',
+    options.symbols
+      ? filterCharacters(options.safeSymbolsOnly ? passwordCharacters.safeSymbols : passwordCharacters.symbols, excludeSet)
+      : '',
+  ].filter(Boolean);
+  const pool = groups.join('');
+
+  if (!pool) {
+    throw new Error('Enable at least one character group with usable characters.');
+  }
+
+  const requiredCharacters = groups.slice(0, Math.min(groups.length, options.length)).map((group) => randomCharacter(group));
+  const remainingCharacters = Array.from({ length: options.length - requiredCharacters.length }, () => randomCharacter(pool));
+
+  return shuffleCharacters([...requiredCharacters, ...remainingCharacters]).join('');
+}
+
+function buildPasswordPool(options: PasswordOptions) {
+  const excludeSet = buildPasswordExcludeSet(options);
+  const pool = [
+    options.lowercase ? passwordCharacters.lowercase : '',
+    options.uppercase ? passwordCharacters.uppercase : '',
+    options.numbers ? passwordCharacters.numbers : '',
+    options.symbols ? (options.safeSymbolsOnly ? passwordCharacters.safeSymbols : passwordCharacters.symbols) : '',
+  ].join('');
+
+  return filterCharacters(pool, excludeSet);
+}
+
+function getMatchingPasswordPreset(options: PasswordOptions): PasswordPresetId {
+  const matchedPreset = matchablePasswordPresets.find((preset) =>
+    passwordPresetMatchKeys.every((key) => options[key] === passwordPresets[preset][key])
+  );
+
+  return matchedPreset ?? 'custom';
+}
+
+function buildPasswordExcludeSet(options: PasswordOptions) {
+  const excludeSet = new Set<string>();
+  const keys = [
+    'avoidQwertyMismatch',
+    'avoidVisualSimilar',
+    'avoidQuoteLike',
+    'avoidDashUnderscore',
+    'avoidSlashBackslashPipe',
+    'avoidHardPunctuation',
+    'avoidShellSensitive',
+    'avoidJsonEnvSensitive',
+  ] as const;
+
+  keys.forEach((key) => {
+    if (options[key]) {
+      for (const character of exclusionCharacters[key]) {
+        excludeSet.add(character);
+      }
+    }
+  });
+
+  for (const character of options.customExclude) {
+    excludeSet.add(character);
+  }
+
+  return excludeSet;
+}
+
+function generatePassphrase(
+  wordCount: number,
+  separator: PassphraseSeparator,
+  capitalization: PassphraseCapitalization,
+  addNumber: boolean,
+  addSymbol: boolean
+) {
+  const words = Array.from({ length: wordCount }, () => {
+    const word = passphraseWords[secureRandomInt(passphraseWords.length)];
+
+    if (capitalization === 'title') {
+      return word[0].toUpperCase() + word.slice(1);
+    }
+
+    if (capitalization === 'random') {
+      return secureRandomInt(2) === 0 ? word : word[0].toUpperCase() + word.slice(1);
+    }
+
+    return word;
+  });
+  const suffix = [
+    addNumber ? String(secureRandomInt(10)) : '',
+    addSymbol ? randomCharacter(passwordCharacters.safeSymbols) : '',
+  ].join('');
+
+  return `${words.join(passphraseSeparatorValues[separator])}${suffix}`;
+}
+
+function generateToken(bits: TokenBits, format: TokenFormat) {
+  if (format === 'uuid') {
+    return generateUuidV4();
+  }
+
+  const bytes = crypto.getRandomValues(new Uint8Array(bits / 8));
+
+  return format === 'hex' ? bytesToHex(bytes) : bytesToBase64Url(bytes);
+}
+
+function generateUuidV4() {
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytesToHex(bytes);
+
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function generatePin(digitCount: number, avoidRepeated: boolean, avoidSequences: boolean, avoidDates: boolean) {
+  let fallback = '';
+
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const candidate = Array.from({ length: digitCount }, () => String(secureRandomInt(10))).join('');
+    fallback = candidate;
+
+    if (!isBadPin(candidate, avoidRepeated, avoidSequences, avoidDates)) {
+      return candidate;
+    }
+  }
+
+  return fallback;
+}
+
+function generateRecoveryCodes(count: RecoveryCodeCount, format: RecoveryCodeFormat) {
+  const alphabet = format === 'digits' ? passwordCharacters.numbers : 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+  return Array.from({ length: count }, () => {
+    const rawCode = Array.from({ length: 8 }, () => randomCharacter(alphabet)).join('');
+
+    return `${rawCode.slice(0, 4)}-${rawCode.slice(4)}`;
+  });
+}
+
+function isBadPin(value: string, avoidRepeated: boolean, avoidSequences: boolean, avoidDates: boolean) {
+  const obviousBadPins = new Set(['000000', '111111', '123456', '654321', '121212', '010101']);
+
+  if (obviousBadPins.has(value)) {
+    return true;
+  }
+
+  if (avoidRepeated && /^(\d)\1+$/.test(value)) {
+    return true;
+  }
+
+  if (avoidSequences && (isSimpleDigitSequence(value, 1) || isSimpleDigitSequence(value, -1) || /^(\d{2})\1+$/.test(value))) {
+    return true;
+  }
+
+  return avoidDates && isDateLikePin(value);
+}
+
+function isSimpleDigitSequence(value: string, direction: 1 | -1) {
+  return [...value].every((digit, index, digits) => {
+    if (index === 0) {
+      return true;
+    }
+
+    return Number(digit) === (Number(digits[index - 1]) + direction + 10) % 10;
+  });
+}
+
+function isDateLikePin(value: string) {
+  if (value.length !== 6 && value.length !== 8) {
+    return false;
+  }
+
+  const chunks =
+    value.length === 6
+      ? [
+          [value.slice(0, 2), value.slice(2, 4)],
+          [value.slice(2, 4), value.slice(0, 2)],
+        ]
+      : [
+          [value.slice(0, 2), value.slice(2, 4)],
+          [value.slice(2, 4), value.slice(0, 2)],
+          [value.slice(4, 6), value.slice(6, 8)],
+        ];
+
+  return chunks.some(([monthValue, dayValue]) => {
+    const month = Number(monthValue);
+    const day = Number(dayValue);
+
+    return month >= 1 && month <= 12 && day >= 1 && day <= 31;
+  });
+}
+
+function secureRandomInt(maxExclusive: number) {
+  if (!Number.isInteger(maxExclusive) || maxExclusive <= 0 || maxExclusive > 0x100000000) {
+    throw new Error('Invalid random range.');
+  }
+
+  const limit = Math.floor(0x100000000 / maxExclusive) * maxExclusive;
+  const randomValue = new Uint32Array(1);
+
+  while (true) {
+    crypto.getRandomValues(randomValue);
+
+    if (randomValue[0] < limit) {
+      return randomValue[0] % maxExclusive;
+    }
+  }
+}
+
+function randomCharacter(characters: string) {
+  return characters[secureRandomInt(characters.length)];
+}
+
+function shuffleCharacters(characters: string[]) {
+  const shuffled = [...characters];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = secureRandomInt(index + 1);
+    const current = shuffled[index];
+    shuffled[index] = shuffled[swapIndex];
+    shuffled[swapIndex] = current;
+  }
+
+  return shuffled;
+}
+
+function filterCharacters(characters: string, excludeSet: Set<string>) {
+  return [...new Set([...characters].filter((character) => !excludeSet.has(character)))].join('');
+}
+
+function estimatePasswordEntropy(length: number, poolLength: number) {
+  return poolLength > 0 ? length * Math.log2(poolLength) : 0;
+}
+
+function estimatePassphraseEntropy(
+  wordCount: number,
+  capitalization: PassphraseCapitalization,
+  addNumber: boolean,
+  addSymbol: boolean
+) {
+  return (
+    wordCount * Math.log2(passphraseWords.length) +
+    (capitalization === 'random' ? wordCount : 0) +
+    (addNumber ? Math.log2(10) : 0) +
+    (addSymbol ? Math.log2(passwordCharacters.safeSymbols.length) : 0)
+  );
+}
+
+function getSecretStrength(entropy: number): SecretStrength {
+  if (entropy < 40) {
+    return { label: 'Very weak', className: 'bg-red-500/15 text-red-200 ring-1 ring-red-400/30', color: '#ef4444' };
+  }
+
+  if (entropy < 60) {
+    return { label: 'Weak', className: 'bg-orange-500/15 text-orange-200 ring-1 ring-orange-400/30', color: '#f97316' };
+  }
+
+  if (entropy < 80) {
+    return { label: 'Okay', className: 'bg-yellow-500/15 text-yellow-200 ring-1 ring-yellow-400/30', color: '#eab308' };
+  }
+
+  if (entropy < 120) {
+    return { label: 'Strong', className: 'bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/30', color: '#22c55e' };
+  }
+
+  return { label: 'Very strong', className: 'bg-green-700/35 text-green-100 ring-1 ring-green-300/40', color: '#15803d' };
+}
+
+function formatEntropy(entropy: number) {
+  return `${entropy.toFixed(entropy >= 100 ? 0 : 1)} bits`;
+}
+
+function getSecretModeLabel(mode: SecretMode) {
+  const labels: Record<SecretMode, string> = {
+    password: 'Password',
+    passphrase: 'Passphrase',
+    token: 'API key / token',
+    pin: 'PIN',
+    recovery: 'Recovery codes',
+  };
+
+  return labels[mode];
+}
+
+function getSecretProfileLabel(
+  mode: SecretMode,
+  passwordOptions: PasswordOptions,
+  tokenBits: TokenBits,
+  tokenFormat: TokenFormat
+) {
+  if (mode === 'password') {
+    return passwordPresetLabels[getMatchingPasswordPreset(passwordOptions)];
+  }
+
+  if (mode === 'token') {
+    return tokenFormat === 'uuid' ? 'UUID v4' : `${tokenBits}-bit ${tokenFormat === 'hex' ? 'hex' : 'base64url'}`;
+  }
+
+  return getSecretModeLabel(mode);
+}
+
+function bytesToHex(bytes: Uint8Array) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function bytesToBase64Url(bytes: Uint8Array) {
+  const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join('');
+
+  return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
 type TlsCheckStatus = 'pass' | 'warn' | 'fail';
+type TlsCertificateValidationType = 'DV' | 'OV' | 'EV' | 'IV' | 'Unknown';
+type TlsCertificateTypeConfidence = 'policy-oid' | 'heuristic' | 'unknown';
 
 type TlsCertificateDetail = {
   type: 'server' | 'intermediate' | 'root' | 'chain';
@@ -502,6 +1938,16 @@ type TlsCertificateDetail = {
   bits: number | null;
 };
 
+type TlsIssuerChainEntry = {
+  level: 'leaf' | 'intermediate' | 'root' | 'unknown';
+  source: 'peer-chain' | 'server-provided' | 'local-trust-store' | 'inferred' | 'unavailable';
+  subject: string;
+  issuer: string;
+  validFrom?: string | null;
+  validTo?: string | null;
+  fingerprint256?: string | null;
+};
+
 type TlsCheckSuccess = {
   ok: true;
   host: string;
@@ -514,6 +1960,10 @@ type TlsCheckSuccess = {
     cipher: string | null;
   };
   certificate: TlsCertificateDetail;
+  certificateType?: TlsCertificateValidationType;
+  certificateTypeConfidence?: TlsCertificateTypeConfidence;
+  certificateTypeReason?: string | null;
+  certificatePolicyOids?: string[];
   warnings: string[];
   summary: {
     resolves: boolean;
@@ -528,6 +1978,10 @@ type TlsCheckSuccess = {
     message: string;
   }>;
   chain: TlsCertificateDetail[];
+  serverProvidedCertificateCount?: number;
+  issuerChain?: TlsIssuerChainEntry[];
+  issuerChainComplete?: boolean;
+  issuerChainNote?: string;
 };
 
 type TlsCheckErrorResponse = {
@@ -540,6 +1994,172 @@ type TlsCheckErrorResponse = {
 
 type TlsCheckResponse = TlsCheckSuccess | TlsCheckErrorResponse;
 
+type CopyImageStatus = {
+  type: 'loading' | 'success' | 'error';
+  message: string;
+};
+
+const copyImageUnsupportedMessage = 'Could not copy image to clipboard. Your browser may not support image clipboard access.';
+
+function useResultImageClipboard(successMessage: string) {
+  const [copyImageStatus, setCopyImageStatus] = useState<CopyImageStatus | null>(null);
+  const imageRef = useRef<HTMLDivElement | null>(null);
+  const copyImageStatusTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (copyImageStatusTimerRef.current !== null) {
+      window.clearTimeout(copyImageStatusTimerRef.current);
+    }
+  }, []);
+
+  function clearCopyImageStatusTimer() {
+    if (copyImageStatusTimerRef.current !== null) {
+      window.clearTimeout(copyImageStatusTimerRef.current);
+      copyImageStatusTimerRef.current = null;
+    }
+  }
+
+  function setTemporaryCopyImageStatus(status: CopyImageStatus) {
+    clearCopyImageStatusTimer();
+    setCopyImageStatus(status);
+
+    if (status.type !== 'loading') {
+      copyImageStatusTimerRef.current = window.setTimeout(() => {
+        setCopyImageStatus(null);
+        copyImageStatusTimerRef.current = null;
+      }, 3200);
+    }
+  }
+
+  function clearCopyImageStatus() {
+    clearCopyImageStatusTimer();
+    setCopyImageStatus(null);
+  }
+
+  async function copyResultImage() {
+    const captureNode = imageRef.current;
+
+    if (!captureNode) {
+      return;
+    }
+
+    if (!window.isSecureContext || !navigator.clipboard || typeof window.ClipboardItem === 'undefined') {
+      setTemporaryCopyImageStatus({
+        type: 'error',
+        message: copyImageUnsupportedMessage,
+      });
+      return;
+    }
+
+    setTemporaryCopyImageStatus({ type: 'loading', message: 'Copying...' });
+
+    try {
+      const blob = await toBlob(captureNode, {
+        pixelRatio: 2,
+        cacheBust: true,
+        backgroundColor: '#0f1117',
+      });
+
+      if (!blob) {
+        throw new Error('Image rendering returned no data.');
+      }
+
+      await navigator.clipboard.write([
+        new window.ClipboardItem({ 'image/png': blob }),
+      ]);
+
+      setTemporaryCopyImageStatus({
+        type: 'success',
+        message: successMessage,
+      });
+    } catch {
+      setTemporaryCopyImageStatus({
+        type: 'error',
+        message: copyImageUnsupportedMessage,
+      });
+    }
+  }
+
+  return {
+    imageRef,
+    copyImageStatus,
+    copyResultImage,
+    clearCopyImageStatus,
+  };
+}
+
+function ResultImageCopyControls({
+  status,
+  onCopy,
+}: {
+  status: CopyImageStatus | null;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <button
+        className="rounded-xl border border-emerald-500/35 bg-zinc-950/80 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:border-emerald-300 hover:bg-emerald-500/10 disabled:cursor-wait disabled:border-zinc-700 disabled:text-zinc-500"
+        type="button"
+        onClick={onCopy}
+        disabled={status?.type === 'loading'}
+        aria-busy={status?.type === 'loading'}
+      >
+        {status?.type === 'loading' ? 'Copying...' : 'Copy result image'}
+      </button>
+      {status && (
+        <p className={`text-sm leading-6 ${getCopyImageStatusClass(status.type)}`} aria-live="polite">
+          {status.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ResultImageCapture({
+  captureRef,
+  children,
+}: {
+  captureRef: RefObject<HTMLDivElement | null>;
+  children: ReactNode;
+}) {
+  return (
+    <div className="pointer-events-none fixed top-0" style={{ left: '-10000px' }} aria-hidden="true">
+      <div
+        ref={captureRef}
+        className="w-[1100px] max-w-[1100px] overflow-hidden rounded-3xl border border-emerald-500/15 bg-[#0f1117] p-8 text-zinc-100 shadow-2xl shadow-black"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ResultImageHeader({ title }: { title: string }) {
+  return (
+    <header className="min-w-0 border-b border-white/10 pb-6">
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200">
+          BAZMEG.TECH IT Toolbox
+        </p>
+        <p className="mt-1 font-mono text-sm text-zinc-400">toolbox.bazmeg.tech</p>
+        <h3 className="mt-2 text-3xl font-semibold text-white">{title}</h3>
+      </div>
+    </header>
+  );
+}
+
+function getCopyImageStatusClass(type: CopyImageStatus['type']) {
+  if (type === 'success') {
+    return 'text-emerald-200';
+  }
+
+  if (type === 'error') {
+    return 'text-red-200';
+  }
+
+  return 'text-zinc-300';
+}
+
 const tlsPortOptions = [
   { value: 443, label: '443 - HTTPS' },
   { value: 4443, label: '4443 - HTTPS alternate' },
@@ -548,6 +2168,8 @@ const tlsPortOptions = [
   { value: 9443, label: '9443 - HTTPS alternate' },
   { value: 10443, label: '10443 - HTTPS alternate / appliance HTTPS' },
 ] as const;
+const tlsCertificateTypeTooltip =
+  'Best signal is the certificate policy OID. Issuer name alone is only a hint.';
 
 function TlsCertificateChecker() {
   const tlsHostExample = 'google.com';
@@ -557,6 +2179,12 @@ function TlsCertificateChecker() {
   const [result, setResult] = useState<TlsCheckSuccess | null>(null);
   const [error, setError] = useState<TlsCheckErrorResponse['error'] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const {
+    imageRef: tlsImageRef,
+    copyImageStatus,
+    copyResultImage: copyTlsResultImage,
+    clearCopyImageStatus,
+  } = useResultImageClipboard('Copied TLS certificate result image to clipboard.');
   const hasHost = hostInput.trim().length > 0;
 
   async function checkCertificate() {
@@ -566,6 +2194,7 @@ function TlsCertificateChecker() {
     setIsLoading(true);
     setResult(null);
     setError(null);
+    clearCopyImageStatus();
 
     try {
       const response = await fetch('/api/tools/tls-check', {
@@ -670,9 +2299,19 @@ function TlsCertificateChecker() {
 
       {result && (
         <div className="mt-6 space-y-5">
+          <ResultImageCopyControls
+            status={copyImageStatus}
+            onCopy={() => void copyTlsResultImage()}
+          />
+
           <TlsResultSection title="Result summary">
             <div className="space-y-3">
-              {result.checks.map((check) => (
+              <TlsCertificateTypeBadge
+                certificateType={result.certificateType}
+                confidence={result.certificateTypeConfidence}
+                reason={result.certificateTypeReason}
+              />
+              {getTlsSummaryChecks(result).map((check) => (
                 <TlsCheckRow key={check.id} check={check} />
               ))}
             </div>
@@ -716,10 +2355,334 @@ function TlsCertificateChecker() {
               <TlsListBlock values={result.warnings} />
             </TlsResultSection>
           )}
+
+          <ResultImageCapture captureRef={tlsImageRef}>
+            <TlsResultImageExport result={result} />
+          </ResultImageCapture>
         </div>
       )}
     </Panel>
   );
+}
+
+function TlsResultImageExport({ result }: { result: TlsCheckSuccess }) {
+  const expiration = getTlsExpirationPresentation(result.certificate.daysRemaining);
+  const issuerChain = getTlsIssuerChain(result);
+  const serverProvidedCertificateCount = getTlsServerProvidedCertificateCount(result, issuerChain);
+  const summaryChecks = getTlsSummaryChecks(result, serverProvidedCertificateCount, issuerChain.length)
+    .filter((check) => check.id !== 'certificate_expiry');
+  const issuerChainComplete = result.issuerChainComplete ?? hasCompleteTlsIssuerChain(issuerChain);
+  const issuerChainNote = result.issuerChainNote || (!issuerChainComplete ? 'Full issuer chain was not available from the server response.' : null);
+
+  return (
+    <div className="min-w-0 bg-[#0f1117] text-zinc-100">
+      <ResultImageHeader title="TLS/SSL Certificate Checker" />
+
+      <div className="mt-6 min-w-0 space-y-5">
+        <HttpHeaderExportSection title="Endpoint summary">
+          <div className="grid min-w-0 grid-cols-2 gap-3">
+            <HttpHeaderExportItem label="Host">{result.host}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Port">{String(result.port)}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Protocol">{result.tls.protocol || '-'}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Cipher">{result.tls.cipher || '-'}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Authorized">{result.tls.authorized ? 'Yes' : 'No'}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Certificate type">
+              {result.certificateType && result.certificateType !== 'Unknown' ? result.certificateType : 'Unknown / Not detected'}
+            </HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Server-provided certificates">{String(serverProvidedCertificateCount)}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Issuer chain entries shown">{String(issuerChain.length)}</HttpHeaderExportItem>
+          </div>
+        </HttpHeaderExportSection>
+
+        <HttpHeaderExportSection title="Result summary">
+          <div className="min-w-0 space-y-3">
+            {summaryChecks.map((check) => (
+              <TlsExportCheckRow key={check.id} check={check} />
+            ))}
+          </div>
+        </HttpHeaderExportSection>
+
+        <HttpHeaderExportSection title="Certificate expiration">
+          <div className={`min-w-0 rounded-2xl border p-5 ${expiration.className}`}>
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em]">Expiration status</p>
+                <p className="mt-2 break-words text-2xl font-semibold text-white [overflow-wrap:anywhere]">
+                  {expiration.label}
+                </p>
+              </div>
+              <span className="w-fit rounded-full border border-current px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]">
+                {expiration.badge}
+              </span>
+            </div>
+            <dl className="mt-5 grid min-w-0 gap-3 md:grid-cols-3">
+              <HttpHeaderExportItem label="Valid from">{result.certificate.validFrom || '-'}</HttpHeaderExportItem>
+              <HttpHeaderExportItem label="Valid until">{result.certificate.validTo || '-'}</HttpHeaderExportItem>
+              <HttpHeaderExportItem label="Days remaining">{expiration.daysText}</HttpHeaderExportItem>
+            </dl>
+          </div>
+        </HttpHeaderExportSection>
+
+        <HttpHeaderExportSection title="Issuer chain">
+          <div className="min-w-0 space-y-4">
+            {issuerChain.length > 0 ? issuerChain.map((entry, index) => (
+              <article key={`${entry.fingerprint256 || entry.subject || entry.level}-${index}`} className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <h5 className="min-w-0 text-base font-semibold leading-6 text-zinc-50">{getTlsIssuerCertificateTitle(entry, index)}</h5>
+                  <TlsIssuerSourceBadge source={entry.source} />
+                </div>
+                <dl className="mt-4 min-w-0 rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
+                  <HttpHeaderExportDetailRow label="Subject">{entry.subject || '-'}</HttpHeaderExportDetailRow>
+                  <HttpHeaderExportDetailRow label="Issuer">{entry.issuer || '-'}</HttpHeaderExportDetailRow>
+                  <HttpHeaderExportDetailRow label="Valid from">{entry.validFrom || '-'}</HttpHeaderExportDetailRow>
+                  <HttpHeaderExportDetailRow label="Valid until">{entry.validTo || '-'}</HttpHeaderExportDetailRow>
+                  <HttpHeaderExportDetailRow label="SHA256 fingerprint">{entry.fingerprint256 || '-'}</HttpHeaderExportDetailRow>
+                </dl>
+              </article>
+            )) : (
+              <p className="text-sm leading-6 text-zinc-400">No issuer chain entries were returned.</p>
+            )}
+            {issuerChainNote && (
+              <p className="rounded-xl border border-white/10 bg-zinc-950/60 px-4 py-3 text-sm leading-6 text-zinc-300">
+                {issuerChainNote}
+              </p>
+            )}
+          </div>
+        </HttpHeaderExportSection>
+
+        {result.warnings.length > 0 && (
+          <HttpHeaderExportSection title="Warnings">
+            <DnsStringList values={result.warnings} />
+          </HttpHeaderExportSection>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TlsExportCheckRow({ check }: { check: { status: TlsCheckStatus; message: string } }) {
+  const statusCopy = {
+    pass: { label: 'Pass', className: 'border-emerald-400/35 bg-emerald-500/10 text-emerald-200' },
+    warn: { label: 'Warn', className: 'border-amber-300/35 bg-amber-400/10 text-amber-100' },
+    fail: { label: 'Fail', className: 'border-red-300/35 bg-red-500/10 text-red-100' },
+  }[check.status];
+
+  return (
+    <div className={`min-w-0 rounded-xl border p-4 ${statusCopy.className}`}>
+      <p className="text-xs font-semibold uppercase tracking-[0.16em]">{statusCopy.label}</p>
+      <p className="mt-1 break-words text-sm leading-6 [overflow-wrap:anywhere]">{check.message}</p>
+    </div>
+  );
+}
+
+function TlsIssuerSourceBadge({ source }: { source: TlsIssuerChainEntry['source'] }) {
+  const sourceDisplay = {
+    'peer-chain': {
+      label: 'PEER CHAIN',
+      className: 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200',
+    },
+    'server-provided': {
+      label: 'SERVER PROVIDED',
+      className: 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200',
+    },
+    'local-trust-store': {
+      label: 'LOCAL TRUST STORE',
+      className: 'border-sky-300/30 bg-sky-400/10 text-sky-100',
+    },
+    inferred: {
+      label: 'INFERRED',
+      className: 'border-amber-300/30 bg-amber-400/10 text-amber-100',
+    },
+    unavailable: {
+      label: 'UNAVAILABLE',
+      className: 'border-zinc-500/40 bg-zinc-800/60 text-zinc-300',
+    },
+  }[source];
+
+  return (
+    <span className={`min-w-max shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold tracking-[0.14em] ${sourceDisplay.className}`}>
+      {sourceDisplay.label}
+    </span>
+  );
+}
+
+function getTlsExpirationPresentation(daysRemaining: number | null) {
+  if (daysRemaining === null) {
+    return {
+      badge: 'Unknown',
+      label: 'Expiration date unavailable',
+      daysText: '-',
+      className: 'border-amber-300/35 bg-amber-400/10 text-amber-100',
+    };
+  }
+
+  if (daysRemaining < 0) {
+    const daysExpired = Math.abs(daysRemaining);
+
+    return {
+      badge: 'Expired',
+      label: `Expired ${daysExpired} day${daysExpired === 1 ? '' : 's'} ago`,
+      daysText: String(daysRemaining),
+      className: 'border-red-300/35 bg-red-500/10 text-red-100',
+    };
+  }
+
+  if (daysRemaining <= 30) {
+    return {
+      badge: 'Expiring soon',
+      label: `Expires in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}`,
+      daysText: String(daysRemaining),
+      className: 'border-amber-300/35 bg-amber-400/10 text-amber-100',
+    };
+  }
+
+  return {
+    badge: 'Valid',
+    label: `Expires in ${daysRemaining} days`,
+    daysText: String(daysRemaining),
+    className: 'border-emerald-400/35 bg-emerald-500/10 text-emerald-100',
+  };
+}
+
+function getTlsIssuerChain(result: TlsCheckSuccess): TlsIssuerChainEntry[] {
+  if (Array.isArray(result.issuerChain) && result.issuerChain.length > 0) {
+    return result.issuerChain.map((entry, index) => normalizeTlsIssuerChainEntry(entry, index));
+  }
+
+  return result.chain.map((certificate, index) => ({
+    level: isTlsSelfIssuedCertificate(certificate) ? 'root' : index === 0 ? 'leaf' : certificate.type === 'intermediate' ? 'intermediate' : 'unknown',
+    source: 'peer-chain',
+    subject: formatDistinguishedName(certificate.subject) || certificate.subject.CN || 'Unavailable',
+    issuer: formatDistinguishedName(certificate.issuer) || certificate.issuer.CN || 'Unavailable',
+    validFrom: certificate.validFrom,
+    validTo: certificate.validTo,
+    fingerprint256: certificate.fingerprint256,
+  }));
+}
+
+function normalizeTlsIssuerChainEntry(entry: TlsIssuerChainEntry, index: number): TlsIssuerChainEntry {
+  return {
+    ...entry,
+    level: isTlsIssuerLevel(entry.level) ? entry.level : index === 0 ? 'leaf' : 'unknown',
+    source: isTlsIssuerSource(entry.source) ? entry.source : 'peer-chain',
+  };
+}
+
+function getTlsServerProvidedCertificateCount(result: TlsCheckSuccess, issuerChain: TlsIssuerChainEntry[]) {
+  if (
+    typeof result.serverProvidedCertificateCount === 'number' &&
+    Number.isFinite(result.serverProvidedCertificateCount) &&
+    result.serverProvidedCertificateCount > 0
+  ) {
+    return result.serverProvidedCertificateCount;
+  }
+
+  const peerChainCount = issuerChain.filter((entry) => entry.source === 'peer-chain' || entry.source === 'server-provided').length;
+
+  if (peerChainCount > 0) {
+    return peerChainCount;
+  }
+
+  return result.certificate ? 1 : 0;
+}
+
+function hasCompleteTlsIssuerChain(issuerChain: TlsIssuerChainEntry[]) {
+  return issuerChain.some((entry) => entry.level === 'root');
+}
+
+function isTlsSelfIssuedCertificate(certificate: TlsCertificateDetail) {
+  return JSON.stringify(certificate.subject) === JSON.stringify(certificate.issuer);
+}
+
+function getTlsSummaryChecks(
+  result: TlsCheckSuccess,
+  serverProvidedCertificateCount = getTlsServerProvidedCertificateCount(result, getTlsIssuerChain(result)),
+  issuerChainEntriesShown = getTlsIssuerChain(result).length,
+) {
+  return result.checks.map((check) => {
+    if (check.id === 'certificate_chain' || /server provided \d+ certificates?/i.test(check.message)) {
+      return {
+        ...check,
+        message: `Issuer chain entries shown: ${issuerChainEntriesShown}. Server-provided certificates: ${serverProvidedCertificateCount}.`,
+      };
+    }
+
+    return check;
+  });
+}
+
+function getTlsIssuerCertificateTitle(entry: TlsIssuerChainEntry, index: number) {
+  if (entry.level === 'leaf' || index === 0) {
+    return 'Leaf Certificate';
+  }
+
+  if (entry.level === 'root') {
+    return 'Root Certificate';
+  }
+
+  if (entry.level === 'intermediate') {
+    return 'Intermediate Certificate';
+  }
+
+  return 'Issuing CA Certificate';
+}
+
+function isTlsIssuerSource(value: unknown): value is TlsIssuerChainEntry['source'] {
+  return value === 'peer-chain' ||
+    value === 'server-provided' ||
+    value === 'local-trust-store' ||
+    value === 'inferred' ||
+    value === 'unavailable';
+}
+
+function isTlsIssuerLevel(value: unknown): value is TlsIssuerChainEntry['level'] {
+  return value === 'leaf' || value === 'intermediate' || value === 'root' || value === 'unknown';
+}
+
+function TlsCertificateTypeBadge({
+  certificateType,
+  confidence,
+  reason,
+}: {
+  certificateType?: TlsCertificateValidationType;
+  confidence?: TlsCertificateTypeConfidence;
+  reason?: string | null;
+}) {
+  const displayType = certificateType && certificateType !== 'Unknown' ? certificateType : 'Unknown / Not detected';
+  const confidenceLabel = getCertificateTypeConfidenceLabel(confidence);
+  const badgeText = confidenceLabel && certificateType !== 'Unknown' ? `${displayType} · ${confidenceLabel}` : displayType;
+  const tooltipText = [reason, tlsCertificateTypeTooltip].filter(Boolean).join(' ');
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3 text-emerald-100">
+      <span className="text-xs font-semibold uppercase tracking-[0.16em]">Certificate type</span>
+      <span className="group relative inline-flex">
+        <span
+          className="rounded-full border border-emerald-400/35 bg-zinc-950/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-200 outline-none transition focus:border-emerald-200 focus:ring-2 focus:ring-emerald-400/40"
+          tabIndex={0}
+          title={tooltipText}
+          aria-label={`Certificate type: ${badgeText}. ${tooltipText}`}
+        >
+          {badgeText}
+        </span>
+        <span className="pointer-events-none absolute left-0 top-[calc(100%+0.5rem)] z-20 hidden w-72 max-w-[calc(100vw-3rem)] rounded-lg border border-emerald-400/25 bg-zinc-950 px-3 py-2 text-xs normal-case leading-5 tracking-normal text-zinc-200 shadow-xl shadow-black/40 group-hover:block group-focus-within:block">
+          {tooltipText}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function getCertificateTypeConfidenceLabel(confidence?: TlsCertificateTypeConfidence) {
+  if (confidence === 'policy-oid') {
+    return 'policy OID';
+  }
+
+  if (confidence === 'heuristic') {
+    return 'heuristic';
+  }
+
+  return null;
 }
 
 function TlsResultSection({ title, children }: { title: string; children: ReactNode }) {
@@ -915,6 +2878,1033 @@ function parseSubjectAltNames(value: string | null) {
     .split(/,\s*/)
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+type HttpHeaderProtocolMode = 'auto' | 'https' | 'http' | 'both';
+type HttpHeaderView = 'simple' | 'advanced' | 'raw';
+type HttpHeaderFindingSeverity = 'pass' | 'info' | 'warning' | 'critical';
+type HttpHeaderCspPrivateIpReference = {
+  header: string;
+  value: string;
+  privateIps: string[];
+};
+
+type HttpHeaderFinding = {
+  severity: HttpHeaderFindingSeverity;
+  code: string;
+  title: string;
+  detail: string;
+  recommendation: string;
+  metadata?: {
+    privateIps?: string[];
+    references?: HttpHeaderCspPrivateIpReference[];
+  };
+};
+
+type HttpHeaderRedirect = {
+  from: string;
+  to: string;
+  status: number;
+  statusText: string | null;
+  location?: string | null;
+};
+
+type HttpHeaderEntry = {
+  name: string;
+  value: string;
+};
+
+type HttpHeaderInteresting = {
+  name: string;
+  category: string;
+  explanation: string;
+  values: string[];
+};
+
+type HttpHeaderCheck = {
+  ok?: boolean;
+  protocol: 'auto' | 'http' | 'https';
+  port: number;
+  cached: boolean;
+  cacheTtlSeconds?: number;
+  cacheAgeSeconds?: number;
+  cacheExpiresInSeconds?: number;
+  startUrl: string;
+  finalUrl?: string;
+  finalCheckedUrl?: string;
+  status: number | null;
+  statusText: string | null;
+  redirectsFollowed: number;
+  chainDisplay: string;
+  redirects?: HttpHeaderRedirect[];
+  blockedRedirect: {
+    from: string;
+    status: number | null;
+    location: string | null;
+  } | null;
+  durationMs: number;
+  headers: HttpHeaderEntry[];
+  interestingHeaders: HttpHeaderInteresting[];
+  findings: HttpHeaderFinding[];
+};
+
+type HttpHeaderCheckSuccess = {
+  ok: boolean;
+  input: {
+    original: string;
+    cleanHost: string;
+    protocolMode: HttpHeaderProtocolMode;
+  };
+  budget: {
+    checksRequested: number;
+    freshChecks: number;
+    cachedChecks: number;
+    tokensConsumed: number;
+  };
+  cache: {
+    ttlSeconds: number;
+  };
+  redirectLimit: number;
+  checks: HttpHeaderCheck[];
+};
+
+type HttpHeaderCheckErrorResponse = {
+  ok: false;
+  error: {
+    code: string;
+    message: string;
+  };
+};
+
+type HttpHeaderCheckResponse = HttpHeaderCheckSuccess | HttpHeaderCheckErrorResponse;
+
+const httpHeaderProtocolModeLabels: Record<HttpHeaderProtocolMode, string> = {
+  auto: 'Auto / Follow redirect',
+  https: 'HTTPS only',
+  http: 'HTTP only',
+  both: 'Both HTTP and HTTPS',
+};
+
+const httpHeaderHttpsPorts = [
+  { value: 443, label: '443 - HTTPS' },
+  { value: 4443, label: '4443 - HTTPS alternative' },
+  { value: 8443, label: '8443 - HTTPS alternative' },
+  { value: 8444, label: '8444 - HTTPS alternative' },
+  { value: 9443, label: '9443 - HTTPS alternative' },
+  { value: 10443, label: '10443 - HTTPS alternative' },
+] as const;
+
+const httpHeaderHttpPorts = [
+  { value: 80, label: '80 - HTTP' },
+  { value: 8000, label: '8000 - HTTP alternative' },
+  { value: 8008, label: '8008 - HTTP alternative' },
+  { value: 8080, label: '8080 - HTTP alternative' },
+  { value: 8081, label: '8081 - HTTP alternative' },
+  { value: 8888, label: '8888 - HTTP alternative' },
+] as const;
+
+function HttpHeaderChecker() {
+  const [targetInput, setTargetInput] = useState('');
+  const [protocolMode, setProtocolMode] = useState<HttpHeaderProtocolMode>('auto');
+  const [selectedHttpsPort, setSelectedHttpsPort] = useState(443);
+  const [selectedHttpPort, setSelectedHttpPort] = useState(80);
+  const [responseView, setResponseView] = useState<HttpHeaderView>('simple');
+  const [result, setResult] = useState<HttpHeaderCheckSuccess | null>(null);
+  const [error, setError] = useState<HttpHeaderCheckErrorResponse['error'] | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const {
+    imageRef: httpHeaderImageRef,
+    copyImageStatus,
+    copyResultImage: copyHttpHeaderResultImage,
+    clearCopyImageStatus,
+  } = useResultImageClipboard('Copied result image to clipboard.');
+  const hasTarget = targetInput.trim().length > 0;
+  const portSelectEnabled = protocolMode === 'http' || protocolMode === 'https';
+  const selectedPort = protocolMode === 'https' ? selectedHttpsPort : protocolMode === 'http' ? selectedHttpPort : null;
+  const portSelectValue = protocolMode === 'https'
+    ? String(selectedHttpsPort)
+    : protocolMode === 'http'
+      ? String(selectedHttpPort)
+      : 'standard';
+  const portOptions = protocolMode === 'https'
+    ? httpHeaderHttpsPorts
+    : protocolMode === 'http'
+      ? httpHeaderHttpPorts
+      : [{
+        value: 'standard',
+        label: protocolMode === 'both' ? 'HTTP 80 + HTTPS 443' : 'Standard Auto behavior',
+      }] as const;
+
+  async function runHttpHeaderCheck() {
+    setIsLoading(true);
+    setResult(null);
+    setError(null);
+    clearCopyImageStatus();
+    const payload = {
+      target: targetInput,
+      protocolMode,
+      ...(selectedPort !== null ? { port: selectedPort } : {}),
+    };
+
+    try {
+      const response = await fetch('/api/tools/http-header-check', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      const body = (await response.json()) as HttpHeaderCheckResponse;
+
+      if (!response.ok || 'error' in body) {
+        setError(!('error' in body) ? {
+          code: 'HTTP_HEADER_CHECK_FAILED',
+          message: 'HTTP header check failed.',
+        } : body.error);
+        return;
+      }
+
+      setResult(body);
+    } catch {
+      setError({
+        code: 'HTTP_HEADER_CHECK_FAILED',
+        message: 'HTTP header check failed.',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return (
+    <Panel title="HTTP Header Checker">
+      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0">
+          <p className="max-w-4xl text-sm leading-6 text-zinc-300">
+            Check public HTTP/HTTPS websites, inspect useful response headers, and trace up to two redirects.
+          </p>
+          {protocolMode === 'both' && (
+            <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100">
+              Both mode runs HTTP and HTTPS separately, so each sub-check can be live or served from this site's cache.
+            </div>
+          )}
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+            <Field>
+              <Label>Target</Label>
+              <input
+                className={inputClass()}
+                placeholder="example.com, https://example.com"
+                value={targetInput}
+                onChange={(event) => setTargetInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && hasTarget && !isLoading) {
+                    void runHttpHeaderCheck();
+                  }
+                }}
+              />
+            </Field>
+            <Field>
+              <Label>Protocol mode</Label>
+              <select
+                className={inputClass()}
+                value={protocolMode}
+                onChange={(event) => setProtocolMode(event.target.value as HttpHeaderProtocolMode)}
+              >
+                {(Object.keys(httpHeaderProtocolModeLabels) as HttpHeaderProtocolMode[]).map((mode) => (
+                  <option key={mode} value={mode}>
+                    {httpHeaderProtocolModeLabels[mode]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <details className="mt-4 rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-zinc-200">Advanced options</summary>
+            <div className="mt-4 grid gap-4 md:grid-cols-[260px_minmax(0,1fr)]">
+              <Field>
+                <Label>Port</Label>
+                <select
+                  className={inputClass(false, !portSelectEnabled)}
+                  value={portSelectValue}
+                  disabled={!portSelectEnabled}
+                  onChange={(event) => {
+                    if (!portSelectEnabled) {
+                      return;
+                    }
+
+                    const nextPort = Number(event.target.value);
+
+                    if (protocolMode === 'https') {
+                      setSelectedHttpsPort(nextPort);
+                    } else {
+                      setSelectedHttpPort(nextPort);
+                    }
+                  }}
+                >
+                  {portOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <p className="self-end text-sm leading-6 text-zinc-400">
+                Advanced port selection only applies to HTTP only and HTTPS only modes. Auto and Both mode always use standard ports.
+              </p>
+            </div>
+          </details>
+
+          <div className="mt-5">
+            <button
+              className="rounded-xl border border-emerald-500/35 bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition hover:border-emerald-300 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500"
+              type="button"
+              onClick={() => void runHttpHeaderCheck()}
+              disabled={!hasTarget || isLoading}
+              aria-busy={isLoading}
+            >
+              {isLoading ? 'Checking...' : 'Check headers'}
+            </button>
+          </div>
+
+          {result && <HttpHeaderCacheStatusNotice result={result} />}
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-zinc-300">Response view:</span>
+            {(['simple', 'advanced', 'raw'] as const).map((view) => (
+              <button
+                key={view}
+                className={`rounded-full border px-3 py-1.5 text-sm font-semibold capitalize transition ${
+                  responseView === view
+                    ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-100'
+                    : 'border-white/10 bg-zinc-950/60 text-zinc-300 hover:border-emerald-400/40 hover:text-emerald-200'
+                }`}
+                type="button"
+                onClick={() => setResponseView(view)}
+              >
+                {view}
+              </button>
+            ))}
+          </div>
+
+          {result && (
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <ResultImageCopyControls
+                status={copyImageStatus}
+                onCopy={() => void copyHttpHeaderResultImage()}
+              />
+            </div>
+          )}
+
+          {error && <HttpHeaderErrorBox error={error} />}
+
+          {result && (
+            <div className="mt-6 min-w-0">
+              {responseView === 'simple' && <HttpHeaderSimpleView result={result} />}
+              {responseView === 'advanced' && <HttpHeaderAdvancedView result={result} />}
+              {responseView === 'raw' && <CommandBlock scrollInside>{JSON.stringify(getPublicHttpHeaderResult(result), null, 2)}</CommandBlock>}
+            </div>
+          )}
+
+          {result && (
+            <ResultImageCapture captureRef={httpHeaderImageRef}>
+              <HttpHeaderResultImageExport result={result} />
+            </ResultImageCapture>
+          )}
+        </div>
+
+        <HttpStatusHelper />
+      </div>
+    </Panel>
+  );
+}
+
+function getPublicHttpHeaderResult(result: HttpHeaderCheckSuccess) {
+  const publicResult: Omit<HttpHeaderCheckSuccess, 'budget'> & { budget?: HttpHeaderCheckSuccess['budget'] } = { ...result };
+  delete publicResult.budget;
+
+  return publicResult;
+}
+
+function HttpHeaderResultImageExport({ result }: { result: HttpHeaderCheckSuccess }) {
+  return (
+    <div className="min-w-0 bg-[#0f1117] text-zinc-100">
+      <ResultImageHeader title="HTTP Header Checker" />
+
+      <div className="mt-6 min-w-0 space-y-5">
+        <HttpHeaderExportSection title="Input Summary">
+          <div className="grid min-w-0 grid-cols-2 gap-3">
+            <HttpHeaderExportItem label="User input">{result.input.original}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Protocol mode">{httpHeaderProtocolModeLabels[result.input.protocolMode]}</HttpHeaderExportItem>
+          </div>
+        </HttpHeaderExportSection>
+
+        <HttpHeaderExportSection title="Checker results">
+          <div className="min-w-0 space-y-4">
+            {result.checks.map((check, index) => (
+              <article key={`${check.protocol}-${index}`} className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
+                <h5 className="min-w-0 text-base font-semibold text-zinc-50">
+                  {formatHttpHeaderProtocolLabel(check.protocol)} check
+                </h5>
+                <dl className="mt-4 min-w-0 rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
+                  <HttpHeaderExportDetailRow label="Start URL">{check.startUrl}</HttpHeaderExportDetailRow>
+                  <HttpHeaderExportDetailRow label="Final status">
+                    <HttpHeaderExportStatusBadge status={check.status} statusText={check.statusText} />
+                  </HttpHeaderExportDetailRow>
+                  <HttpHeaderExportDetailRow label="Final URL">{check.finalUrl || check.finalCheckedUrl || '-'}</HttpHeaderExportDetailRow>
+                  <HttpHeaderExportDetailRow label="Duration">{check.cached ? '0 ms' : formatMilliseconds(check.durationMs)}</HttpHeaderExportDetailRow>
+                </dl>
+              </article>
+            ))}
+          </div>
+        </HttpHeaderExportSection>
+
+        <HttpHeaderExportSection title="Redirect chain">
+          <div className="min-w-0 space-y-4">
+            {result.checks.map((check, index) => (
+              <article key={`${check.protocol}-redirect-${index}`} className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
+                <h5 className="min-w-0 text-base font-semibold text-zinc-50">
+                  {formatHttpHeaderProtocolLabel(check.protocol)} redirect path
+                </h5>
+                <div className="mt-4 min-w-0">
+                  <HttpHeaderRedirectChainView check={check} />
+                </div>
+              </article>
+            ))}
+          </div>
+        </HttpHeaderExportSection>
+      </div>
+    </div>
+  );
+}
+
+function HttpHeaderExportDetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0 border-b border-white/10 py-3 first:pt-0 last:border-b-0 last:pb-0">
+      <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">{label}</dt>
+      <dd className="mt-1 min-w-0 break-words font-mono text-sm leading-6 text-zinc-100 [overflow-wrap:anywhere] [word-break:break-word]">
+        {children || '-'}
+      </dd>
+    </div>
+  );
+}
+
+function HttpHeaderExportStatusBadge({ status, statusText }: { status: number | null; statusText: string | null }) {
+  if (!status) {
+    return <span>Unavailable</span>;
+  }
+
+  const meaning = getHttpStatusStandardText(status) || statusText || 'Status';
+
+  return (
+    <span className={`inline-flex whitespace-nowrap items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold ${getHttpStatusBadgeClass(status)}`}>
+      <span className="font-mono">{status}</span>
+      <span>{meaning}</span>
+    </span>
+  );
+}
+
+function HttpHeaderRedirectChainView({ check }: { check: HttpHeaderCheck }) {
+  const redirects = check.redirects || [];
+  const firstUrl = redirects[0]?.from || check.chainDisplay || check.finalUrl || check.startUrl;
+
+  if (redirects.length === 0) {
+    return (
+      <div className="min-w-0">
+        <HttpHeaderRedirectStep index={1} value={firstUrl} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-w-0 space-y-2">
+      <HttpHeaderRedirectStep index={1} value={firstUrl} />
+      {redirects.map((redirect, index) => (
+        <div key={`${redirect.from}-${redirect.to}-${index}`} className="min-w-0">
+          <div className="ml-6 border-l border-emerald-400/25 py-2 pl-4">
+            <p className="font-mono text-sm font-semibold leading-6 text-emerald-100">
+              {formatHttpHeaderRedirectStatus(redirect)}
+            </p>
+            <p className="font-mono text-lg leading-7 text-emerald-300">↓</p>
+          </div>
+          {redirect.to === 'X'
+            ? <HttpHeaderBlockedRedirectStop />
+            : <HttpHeaderRedirectStep index={index + 2} value={redirect.to} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HttpHeaderRedirectStep({ index, value }: { index: number; value: string }) {
+  return (
+    <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-xl border border-white/10 bg-zinc-900/80 px-4 py-3 font-mono text-sm leading-6 text-zinc-100">
+      <span className="shrink-0 font-semibold text-emerald-300">{index}.</span>
+      <span className="min-w-0 break-words [overflow-wrap:anywhere]">{value}</span>
+    </div>
+  );
+}
+
+function HttpHeaderBlockedRedirectStop() {
+  return (
+    <div className="inline-flex max-w-full items-center gap-2 rounded-xl border border-red-300/35 bg-red-500/10 px-4 py-3 font-mono text-sm font-semibold leading-6 text-red-100">
+      <span className="shrink-0 text-red-200">X</span>
+      <span>Blocked</span>
+    </div>
+  );
+}
+
+function formatHttpHeaderRedirectStatus(redirect: HttpHeaderRedirect) {
+  const statusText = redirect.statusText || getHttpStatusStandardText(redirect.status);
+
+  return statusText ? `${redirect.status} ${statusText}` : String(redirect.status);
+}
+
+function HttpHeaderExportSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="min-w-0 rounded-2xl border border-emerald-500/15 bg-zinc-900/80 p-5">
+      <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-200">{title}</h4>
+      <div className="mt-4 min-w-0">{children}</div>
+    </section>
+  );
+}
+
+function HttpHeaderExportItem({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-white/10 bg-zinc-950/70 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">{label}</p>
+      <div className="mt-2 min-w-0 break-words font-mono text-sm leading-6 text-zinc-100 [overflow-wrap:anywhere] [word-break:break-word]">
+        {children || '-'}
+      </div>
+    </div>
+  );
+}
+
+function HttpHeaderErrorBox({ error }: { error: HttpHeaderCheckErrorResponse['error'] }) {
+  const messages: Record<string, string> = {
+    IP_NOT_ALLOWED: 'IP addresses are not allowed. Enter a public domain name instead.',
+    LOCAL_HOSTNAME_NOT_ALLOWED: 'Local/internal hostnames are not allowed. This tool only checks public websites.',
+    UNSUPPORTED_PROTOCOL: 'Unsupported protocol. Only HTTP and HTTPS URLs are supported.',
+    INVALID_PORT: 'Port is not supported. Use the Advanced port dropdown with a supported HTTP/HTTPS port.',
+    BLOCKED_TARGET: 'Target resolved to a blocked/private/internal address.',
+    BLOCKED_REDIRECT: 'Redirect target is blocked because it points to a private/internal/unsupported address.',
+    RATE_LIMITED: 'Rate limit reached. Too many HTTP header checks were requested recently. Try again later.',
+  };
+
+  return (
+    <div className="mt-5 rounded-2xl border border-red-300/35 bg-red-950/40 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-200">Error</p>
+      <p className="mt-2 text-sm leading-6 text-red-50">{messages[error.code] || error.message}</p>
+    </div>
+  );
+}
+
+function HttpHeaderSimpleView({ result }: { result: HttpHeaderCheckSuccess }) {
+  const importantFindings = result.checks.flatMap((check) => check.findings).filter((finding) => finding.severity !== 'info');
+
+  return (
+    <div className="min-w-0 space-y-5">
+      <HttpHeaderInputSummary result={result} />
+      {result.checks.map((check, index) => (
+        <TlsResultSection key={`${check.protocol}-${index}`} title="Checker results">
+          <HttpHeaderCheckSummary check={check} />
+        </TlsResultSection>
+      ))}
+      <TlsResultSection title="Security findings">
+        <HttpHeaderFindingList findings={importantFindings} />
+      </TlsResultSection>
+    </div>
+  );
+}
+
+function HttpHeaderAdvancedView({ result }: { result: HttpHeaderCheckSuccess }) {
+  return (
+    <div className="min-w-0 space-y-5">
+      <HttpHeaderInputSummary result={result} />
+      {result.checks.map((check, index) => (
+        <TlsResultSection key={`${check.protocol}-${index}`} title="Checker results">
+          <div className="space-y-5">
+            <HttpHeaderCheckSummary check={check} />
+            <HttpHeaderFindingList findings={check.findings} />
+            <HttpHeaderInterestingGroups headers={check.interestingHeaders} />
+            <HttpHeaderCspPrivateIpReferences findings={check.findings} />
+            <HttpHeaderRawHeaders headers={check.headers} />
+          </div>
+        </TlsResultSection>
+      ))}
+    </div>
+  );
+}
+
+function HttpHeaderInputSummary({ result }: { result: HttpHeaderCheckSuccess }) {
+  const portSummary = getHttpHeaderInputPortSummary(result);
+
+  return (
+    <TlsResultSection title="Input summary">
+      <div className="grid gap-3 md:grid-cols-3">
+        <ResultItem label="User input" value={result.input.original} />
+        <ResultItem label="Protocol mode" value={httpHeaderProtocolModeLabels[result.input.protocolMode]} />
+        <ResultItem label={portSummary.label} value={portSummary.value} />
+      </div>
+    </TlsResultSection>
+  );
+}
+
+function getHttpHeaderInputPortSummary(result: HttpHeaderCheckSuccess) {
+  if (result.input.protocolMode === 'auto') {
+    return { label: 'Port', value: 'standard Auto behavior' };
+  }
+
+  if (result.input.protocolMode === 'both') {
+    return { label: 'Ports', value: 'HTTP 80 and HTTPS 443' };
+  }
+
+  const matchingCheck = result.checks.find((check) => check.protocol === result.input.protocolMode) || result.checks[0];
+
+  return {
+    label: 'Port',
+    value: matchingCheck ? String(matchingCheck.port) : 'Unavailable',
+  };
+}
+
+function HttpHeaderCacheStatusNotice({ result }: { result: HttpHeaderCheckSuccess }) {
+  const isBothMode = result.input.protocolMode === 'both';
+  const primaryCheck = result.checks[0];
+
+  return (
+    <aside className="mt-4 min-w-0 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-sm text-emerald-50">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200">Cache status</p>
+          {!isBothMode && primaryCheck && (
+            <p className="mt-1 font-semibold text-emerald-50">
+              {primaryCheck.cached ? 'Served from this site\'s cache' : 'Live HTTP header check'}
+            </p>
+          )}
+          {isBothMode && (
+            <p className="mt-1 font-semibold text-emerald-50">HTTP cache status by protocol</p>
+          )}
+        </div>
+        {!isBothMode && primaryCheck && (
+          <HttpHeaderCacheDetails check={primaryCheck} fallbackTtlSeconds={result.cache.ttlSeconds} />
+        )}
+      </div>
+      {isBothMode && (
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          {result.checks.map((check, index) => (
+            <section
+              key={`${check.protocol}-${index}`}
+              className="min-w-0 border-t border-emerald-200/20 pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0 lg:first:border-l-0 lg:first:pl-0"
+            >
+              <p className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-emerald-200">
+                {formatHttpHeaderProtocolLabel(check.protocol)}
+              </p>
+              <p className="mt-1 font-semibold text-emerald-50">
+                {check.cached ? 'Served from this site\'s cache' : 'Live HTTP header check'}
+              </p>
+              <HttpHeaderCacheDetails check={check} fallbackTtlSeconds={result.cache.ttlSeconds} className="mt-3" />
+            </section>
+          ))}
+        </div>
+      )}
+      <p className="mt-3 text-xs leading-5 text-emerald-100/85">
+        Results may be served from this site's short cache. Cached checks do not consume your request budget.
+      </p>
+    </aside>
+  );
+}
+
+function HttpHeaderCacheDetails({
+  check,
+  fallbackTtlSeconds,
+  className = '',
+}: {
+  check: HttpHeaderCheck;
+  fallbackTtlSeconds: number;
+  className?: string;
+}) {
+  const ttlSeconds = getFiniteSeconds(check.cacheTtlSeconds) ?? getFiniteSeconds(fallbackTtlSeconds);
+  const ageSeconds = getFiniteSeconds(check.cacheAgeSeconds) ?? (check.cached ? null : 0);
+  const expiresInSeconds = getFiniteSeconds(check.cacheExpiresInSeconds) ?? (!check.cached ? ttlSeconds : null);
+  const cacheDetails = [
+    ['Data served from this site\'s cache', check.cached ? 'Yes' : 'No'],
+    ['Cache age', formatSeconds(ageSeconds)],
+    ['Expires in', formatSeconds(expiresInSeconds)],
+    ['Cache TTL', formatSeconds(ttlSeconds)],
+  ].filter((detail): detail is [string, string] => Boolean(detail[1]));
+
+  return (
+    <dl className={`grid min-w-0 gap-x-4 gap-y-2 sm:grid-cols-2 ${className}`}>
+      {cacheDetails.map(([label, value]) => (
+        <div key={label} className="min-w-0">
+          <dt className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-200/80">{label}</dt>
+          <dd className="mt-0.5 break-words font-mono text-sm text-emerald-50 [overflow-wrap:anywhere]">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function formatHttpHeaderProtocolLabel(protocol: HttpHeaderCheck['protocol']) {
+  return protocol === 'auto' ? 'AUTO' : protocol.toUpperCase();
+}
+
+function getFiniteSeconds(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : null;
+}
+
+function HttpHeaderCheckSummary({ check }: { check: HttpHeaderCheck }) {
+  return (
+    <div className="min-w-0 space-y-4">
+      <dl className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+        <HttpHeaderDetailRow label="Start URL" valueClassName="break-words [overflow-wrap:anywhere] md:[overflow-wrap:break-word]">
+          {check.startUrl}
+        </HttpHeaderDetailRow>
+        <HttpHeaderDetailRow label="Final status">
+          <HttpStatusResultBadge status={check.status} statusText={check.statusText} />
+        </HttpHeaderDetailRow>
+        <HttpHeaderDetailRow label="Final URL" valueClassName="break-words [overflow-wrap:anywhere] md:[overflow-wrap:break-word]">
+          {check.finalUrl || check.finalCheckedUrl || '-'}
+        </HttpHeaderDetailRow>
+        <HttpHeaderDetailRow label="Duration">
+          {check.cached ? '0 ms' : formatMilliseconds(check.durationMs)}
+        </HttpHeaderDetailRow>
+      </dl>
+      <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Redirect chain</p>
+        <HttpHeaderRedirectChain check={check} />
+      </div>
+    </div>
+  );
+}
+
+function HttpHeaderDetailRow({
+  label,
+  children,
+  valueClassName = '',
+}: {
+  label: string;
+  children: ReactNode;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="min-w-0 border-b border-white/10 py-3 first:pt-0 last:border-b-0 last:pb-0">
+      <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">{label}</dt>
+      <dd className={`mt-1 min-w-0 font-mono text-sm leading-6 text-zinc-100 ${valueClassName}`}>
+        {children || '-'}
+      </dd>
+    </div>
+  );
+}
+
+function HttpHeaderRedirectChain({ check }: { check: HttpHeaderCheck }) {
+  return (
+    <div className="mt-3">
+      <HttpHeaderRedirectChainView check={check} />
+    </div>
+  );
+}
+
+function HttpStatusResultBadge({ status, statusText }: { status: number | null; statusText: string | null }) {
+  if (!status) {
+    return <span>Unavailable</span>;
+  }
+
+  const meaning = getHttpStatusStandardText(status) || statusText || 'Status';
+
+  return (
+    <span className={`inline-flex max-w-full flex-wrap items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold ${getHttpStatusBadgeClass(status)}`}>
+      <span className="font-mono">{status}</span>
+      <span>{meaning}</span>
+    </span>
+  );
+}
+
+function HttpHeaderFindingList({ findings }: { findings: HttpHeaderFinding[] }) {
+  if (findings.length === 0) {
+    return <p className="text-sm text-zinc-400">No important findings were returned.</p>;
+  }
+
+  return (
+    <div className="min-w-0 space-y-3">
+      {findings.map((finding, index) => (
+        <article key={`${finding.code}-${index}`} className={`rounded-xl border p-4 ${httpHeaderFindingClass(finding.severity)}`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-current px-2 py-0.5 text-xs font-semibold uppercase tracking-[0.12em]">
+              {finding.severity}
+            </span>
+            <h4 className="text-sm font-semibold">{finding.title}</h4>
+          </div>
+          <p className="mt-2 text-sm leading-6">{finding.detail}</p>
+          <p className="mt-2 text-sm leading-6 opacity-90">{finding.recommendation}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function httpHeaderFindingClass(severity: HttpHeaderFindingSeverity) {
+  if (severity === 'critical') {
+    return 'border-red-300/35 bg-red-500/10 text-red-50';
+  }
+
+  if (severity === 'warning') {
+    return 'border-amber-300/35 bg-amber-400/10 text-amber-50';
+  }
+
+  if (severity === 'pass') {
+    return 'border-emerald-400/35 bg-emerald-500/10 text-emerald-50';
+  }
+
+  return 'border-sky-300/25 bg-sky-400/10 text-sky-50';
+}
+
+function HttpHeaderInterestingGroups({ headers }: { headers: HttpHeaderInteresting[] }) {
+  if (headers.length === 0) {
+    return <p className="text-sm text-zinc-400">No tracked headers were detected.</p>;
+  }
+
+  const categories = [...new Set(headers.map((header) => header.category))];
+
+  return (
+    <div className="min-w-0 space-y-4">
+      {categories.map((category) => (
+        <div key={category} className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+          <h4 className="text-sm font-semibold text-zinc-100">{category}</h4>
+          <div className="mt-3 grid min-w-0 gap-3">
+            {headers.filter((header) => header.category === category).map((header) => (
+              <div key={header.name} className="min-w-0 rounded-xl border border-white/10 bg-zinc-900/70 p-3">
+                <p className="font-mono text-sm font-semibold text-emerald-200">{header.name}</p>
+                <p className="mt-1 text-sm leading-6 text-zinc-300">{header.explanation}</p>
+                <p className="mt-2 break-words font-mono text-xs leading-5 text-zinc-100 [overflow-wrap:anywhere]">
+                  {header.values.join('\n')}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HttpHeaderCspPrivateIpReferences({ findings }: { findings: HttpHeaderFinding[] }) {
+  const finding = findings.find((entry) => entry.code === 'CSP_EXPOSES_PRIVATE_IP');
+  const references = finding?.metadata?.references?.filter((reference) => reference.privateIps?.length > 0) || [];
+  const privateIps = finding?.metadata?.privateIps || [];
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-4">
+      <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-200">
+        CSP private/internal IP references
+      </h4>
+      {references.length === 0 && privateIps.length === 0 ? (
+        <p className="mt-3 text-sm text-zinc-400">N/A</p>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {privateIps.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {privateIps.map((ip) => (
+                <span
+                  key={ip}
+                  className="rounded-full border border-amber-300/35 bg-amber-400/10 px-3 py-1 font-mono text-xs font-semibold text-amber-100"
+                >
+                  {ip}
+                </span>
+              ))}
+            </div>
+          )}
+          {references.map((reference, index) => (
+            <article key={`${reference.header}-${index}`} className="min-w-0 rounded-xl border border-white/10 bg-zinc-900/70 p-3">
+              <p className="font-mono text-sm font-semibold text-emerald-200">{reference.header}</p>
+              <p className="mt-2 break-words font-mono text-xs leading-5 text-zinc-100 [overflow-wrap:anywhere]">
+                {reference.value}
+              </p>
+              <p className="mt-2 text-xs leading-5 text-zinc-300">
+                Found: {reference.privateIps.join(', ')}
+              </p>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HttpHeaderRawHeaders({ headers }: { headers: HttpHeaderEntry[] }) {
+  const raw = headers.map((header) => `${header.name}: ${header.value}`).join('\n');
+
+  return (
+    <div>
+      <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-200">Raw headers</h4>
+      <CommandBlock scrollInside>{raw || '-'}</CommandBlock>
+    </div>
+  );
+}
+
+type HttpStatusFamilyKey = '2xx' | '3xx' | '4xx' | '5xx';
+
+const httpStatusFamilies: Array<{
+  key: HttpStatusFamilyKey;
+  code: number;
+  label: string;
+  buttonClass: string;
+  codes: Array<{
+    code: number;
+    label: string;
+    detail: string;
+  }>;
+}> = [
+  {
+    key: '2xx',
+    code: 200,
+    label: 'Success',
+    buttonClass: 'border-emerald-300/45 bg-emerald-400/15 text-emerald-50 hover:bg-emerald-400/25',
+    codes: [
+      { code: 200, label: 'OK', detail: 'The request succeeded.' },
+      { code: 201, label: 'Created', detail: 'A new resource was created.' },
+      { code: 202, label: 'Accepted', detail: 'The request was accepted for processing.' },
+      { code: 204, label: 'No Content', detail: 'The request succeeded with no body.' },
+      { code: 206, label: 'Partial Content', detail: 'Only part of the resource was returned.' },
+    ],
+  },
+  {
+    key: '3xx',
+    code: 300,
+    label: 'Redirection',
+    buttonClass: 'border-slate-300/45 bg-slate-300/15 text-slate-50 hover:bg-slate-300/25',
+    codes: [
+      { code: 300, label: 'Multiple Choices', detail: 'Several response options are available.' },
+      { code: 301, label: 'Moved Permanently', detail: 'The resource has a permanent new URL.' },
+      { code: 302, label: 'Found', detail: 'The resource is temporarily elsewhere.' },
+      { code: 303, label: 'See Other', detail: 'Fetch the result from another URL.' },
+      { code: 304, label: 'Not Modified', detail: 'A cached copy may be reused.' },
+      { code: 307, label: 'Temporary Redirect', detail: 'Repeat the same method at another URL.' },
+      { code: 308, label: 'Permanent Redirect', detail: 'Repeat the same method at the permanent URL.' },
+    ],
+  },
+  {
+    key: '4xx',
+    code: 400,
+    label: 'Client error',
+    buttonClass: 'border-amber-300/50 bg-amber-300/15 text-amber-50 hover:bg-amber-300/25',
+    codes: [
+      { code: 400, label: 'Bad Request', detail: 'The server could not parse the request.' },
+      { code: 401, label: 'Unauthorized', detail: 'Authentication is required.' },
+      { code: 403, label: 'Forbidden', detail: 'The server refused access.' },
+      { code: 404, label: 'Not Found', detail: 'The requested resource does not exist.' },
+      { code: 405, label: 'Method Not Allowed', detail: 'That HTTP method is not allowed here.' },
+      { code: 408, label: 'Request Timeout', detail: 'The server timed out waiting.' },
+      { code: 409, label: 'Conflict', detail: 'The request conflicts with current state.' },
+      { code: 410, label: 'Gone', detail: 'The resource is no longer available.' },
+      { code: 413, label: 'Payload Too Large', detail: 'The request body is too large.' },
+      { code: 415, label: 'Unsupported Media Type', detail: 'The content type is not supported.' },
+      { code: 418, label: "I'm a teapot", detail: 'A deliberately non-serious status code.' },
+      { code: 421, label: 'Misdirected Request', detail: 'The request reached the wrong server.' },
+      { code: 422, label: 'Unprocessable Content', detail: 'The request was understood but invalid.' },
+      { code: 425, label: 'Too Early', detail: 'The server is unwilling to risk replay.' },
+      { code: 426, label: 'Upgrade Required', detail: 'A protocol upgrade is required.' },
+      { code: 429, label: 'Too Many Requests', detail: 'The client has sent too many requests.' },
+      { code: 431, label: 'Request Header Fields Too Large', detail: 'Request headers are too large.' },
+      { code: 451, label: 'Unavailable For Legal Reasons', detail: 'Access is restricted for legal reasons.' },
+    ],
+  },
+  {
+    key: '5xx',
+    code: 500,
+    label: 'Server error',
+    buttonClass: 'border-red-300/45 bg-red-400/15 text-red-50 hover:bg-red-400/25',
+    codes: [
+      { code: 500, label: 'Internal Server Error', detail: 'The server hit an unexpected error.' },
+      { code: 501, label: 'Not Implemented', detail: 'The server does not support the feature.' },
+      { code: 502, label: 'Bad Gateway', detail: 'A proxy received a bad upstream response.' },
+      { code: 503, label: 'Service Unavailable', detail: 'The server is unavailable or overloaded.' },
+      { code: 504, label: 'Gateway Timeout', detail: 'A proxy timed out waiting upstream.' },
+      { code: 505, label: 'HTTP Version Not Supported', detail: 'The HTTP version is unsupported.' },
+      { code: 507, label: 'Insufficient Storage', detail: 'The server lacks storage for the request.' },
+      { code: 508, label: 'Loop Detected', detail: 'The server detected an infinite loop.' },
+      { code: 510, label: 'Not Extended', detail: 'Further extensions are required.' },
+      { code: 511, label: 'Network Authentication Required', detail: 'Network access requires authentication.' },
+    ],
+  },
+];
+
+function HttpStatusHelper() {
+  const [expandedFamily, setExpandedFamily] = useState<HttpStatusFamilyKey | null>(null);
+  const activeFamily = httpStatusFamilies.find((family) => family.key === expandedFamily) || null;
+
+  return (
+    <aside className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/80 p-4 shadow-lg shadow-black/25 xl:sticky xl:top-6 xl:self-start">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200">HTTP status codes</p>
+        <h3 className="mt-1 text-lg font-semibold text-zinc-50">Response families</h3>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+        {httpStatusFamilies.map((family) => (
+          <button
+            key={family.key}
+            className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-3 text-left text-sm transition ${family.buttonClass} ${
+              expandedFamily === family.key ? 'ring-2 ring-white/25' : ''
+            }`}
+            type="button"
+            aria-expanded={expandedFamily === family.key}
+            onClick={() => setExpandedFamily((current) => current === family.key ? null : family.key)}
+          >
+            <span className="font-mono text-base font-bold">{family.key}</span>
+            <span className="font-semibold">{family.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {activeFamily && (
+        <div className="mt-4 space-y-2 border-t border-white/10 pt-4">
+          {activeFamily.codes.map(({ code, label, detail }) => (
+            <div key={code} className="rounded-xl border border-white/10 bg-zinc-900/85 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`rounded-full border px-2.5 py-1 font-mono text-xs font-semibold ${getHttpStatusBadgeClass(code)}`}>
+                  {code}
+                </span>
+                <span className="text-sm font-semibold text-zinc-50">{label}</span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-zinc-300">{detail}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function getHttpStatusStandardText(status: number) {
+  for (const family of httpStatusFamilies) {
+    const match = family.codes.find((entry) => entry.code === status);
+
+    if (match) {
+      return match.label;
+    }
+  }
+
+  return null;
+}
+
+function getHttpStatusBadgeClass(status: number) {
+  if (status >= 200 && status < 300) {
+    return 'bg-emerald-700 text-white border-emerald-300/60';
+  }
+
+  if (status >= 300 && status < 400) {
+    return 'bg-slate-700 text-white border-slate-300/60';
+  }
+
+  if (status >= 400 && status < 500) {
+    return 'bg-amber-700 text-white border-amber-300/60';
+  }
+
+  if (status >= 500 && status < 600) {
+    return 'bg-red-700 text-white border-red-300/60';
+  }
+
+  return 'bg-slate-700 text-white border-slate-300/60';
 }
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
@@ -1348,6 +4338,12 @@ function DnsChecker() {
   const [result, setResult] = useState<DnsCheckSuccess | null>(null);
   const [error, setError] = useState<DnsCheckErrorResponse['error'] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const {
+    imageRef: dnsImageRef,
+    copyImageStatus,
+    copyResultImage: copyDnsResultImage,
+    clearCopyImageStatus,
+  } = useResultImageClipboard('Copied DNS result image to clipboard.');
   const validationError = validateDnsForm(recordType, queryInput, txtHelper, dkimSelector, srvService, srvDomain);
   const previewName = getDnsPreviewName(recordType, queryInput, txtHelper, dkimSelector, srvService, srvProtocol, srvDomain);
 
@@ -1368,6 +4364,7 @@ function DnsChecker() {
     setIsLoading(true);
     setResult(null);
     setError(null);
+    clearCopyImageStatus();
 
     try {
       const response = await fetch('/api/tools/dns-check', {
@@ -1510,6 +4507,15 @@ function DnsChecker() {
 
       {result && <DnsCacheStatusNotice cache={result.cache} />}
 
+      {result && (
+        <div className="mt-4">
+          <ResultImageCopyControls
+            status={copyImageStatus}
+            onCopy={() => void copyDnsResultImage()}
+          />
+        </div>
+      )}
+
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium text-zinc-300">Response view:</span>
         {(['simple', 'advanced', 'raw'] as const).map((view) => (
@@ -1535,6 +4541,9 @@ function DnsChecker() {
           {responseView === 'simple' && <DnsSimpleView result={result} />}
           {responseView === 'advanced' && <DnsAdvancedView result={result} />}
           {responseView === 'raw' && <CommandBlock scrollInside>{JSON.stringify(result, null, 2)}</CommandBlock>}
+          <ResultImageCapture captureRef={dnsImageRef}>
+            <DnsResultImageExport result={result} />
+          </ResultImageCapture>
         </div>
       )}
     </Panel>
@@ -1841,6 +4850,166 @@ function DnsAdvancedView({ result }: { result: DnsCheckSuccess }) {
       </TlsResultSection>
     </div>
   );
+}
+
+function DnsResultImageExport({ result }: { result: DnsCheckSuccess }) {
+  const records = result.mode === 'burst' ? [] : asDnsRecords(result.records);
+  const providers = asDnsProviders(result.providers);
+  const diagnostics = asDnsDiagnostics(result.diagnostics).slice(0, 6);
+  const warnings = asDnsStrings(result.warnings);
+  const txtDiagnostics = getDnsTxtDiagnostics(asDnsDiagnostics(result.diagnostics));
+  const hasSpfExplanation = result.mode === 'single' && getDnsSpfDiagnostics(txtDiagnostics).length > 0;
+
+  return (
+    <div className="min-w-0 bg-[#0f1117] text-zinc-100">
+      <ResultImageHeader title="DNS Checker" />
+
+      <div className="mt-6 min-w-0 space-y-5">
+        <HttpHeaderExportSection title="Query summary">
+          <div className="grid min-w-0 grid-cols-2 gap-3">
+            <HttpHeaderExportItem label="DNS target">{getDnsExportTarget(result)}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Record type">{result.query?.recordType || '-'}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Resolver/provider">{formatDnsResolver(result)}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Mode">{result.mode === 'burst' ? 'Multi-provider comparison' : 'Single provider'}</HttpHeaderExportItem>
+          </div>
+        </HttpHeaderExportSection>
+
+        <HttpHeaderExportSection title="Response summary">
+          <div className="grid min-w-0 grid-cols-2 gap-3">
+            <HttpHeaderExportItem label="Overall result">{formatDnsStatus(result.status) || '-'}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Response code">{formatUnknown(result.responseCode)}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Lowest TTL">{result.mode === 'burst' ? 'See provider answers' : formatDnsLowestTtl(records)}</HttpHeaderExportItem>
+            <HttpHeaderExportItem label="Duration">{formatMilliseconds(result.durationMs)}</HttpHeaderExportItem>
+          </div>
+        </HttpHeaderExportSection>
+
+        {result.mode === 'burst' ? (
+          <HttpHeaderExportSection title="Provider answers">
+            <div className="min-w-0 space-y-4">
+              {providers.length > 0 ? providers.map((provider, index) => (
+                <DnsExportProviderCard key={`${provider.resolver?.id || provider.provider?.id || 'provider'}-${index}`} provider={provider} />
+              )) : (
+                <p className="text-sm leading-6 text-zinc-400">No provider comparison data was returned.</p>
+              )}
+            </div>
+          </HttpHeaderExportSection>
+        ) : (
+          <HttpHeaderExportSection title="Answers">
+            <DnsExportRecordList records={records} emptyText="No requested records were returned." />
+          </HttpHeaderExportSection>
+        )}
+
+        {warnings.length > 0 && (
+          <HttpHeaderExportSection title="Important warnings">
+            <DnsStringList values={warnings} />
+          </HttpHeaderExportSection>
+        )}
+
+        {hasSpfExplanation && (
+          <HttpHeaderExportSection title="TXT/email diagnostics">
+            <DnsTxtDiagnostics diagnostics={txtDiagnostics} records={records} compact />
+          </HttpHeaderExportSection>
+        )}
+
+        {diagnostics.length > 0 && (
+          <HttpHeaderExportSection title="Important diagnostics">
+            <DnsExportDiagnosticList diagnostics={diagnostics} />
+          </HttpHeaderExportSection>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DnsExportProviderCard({ provider }: { provider: DnsProviderResult }) {
+  const resolver = provider.resolver || provider.provider;
+  const records = asDnsRecords(provider.records);
+  const warnings = asDnsStrings(provider.warnings);
+
+  return (
+    <article className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h5 className="break-words text-base font-semibold text-zinc-50 [overflow-wrap:anywhere]">
+            {resolver?.name || 'Unknown provider'}
+          </h5>
+          <p className="mt-1 break-words text-xs uppercase tracking-[0.14em] text-zinc-500 [overflow-wrap:anywhere]">
+            {resolver?.profile || resolver?.category || 'Provider'}
+          </p>
+        </div>
+        <span className="w-fit rounded-full border border-emerald-400/25 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+          {formatDnsStatus(provider.status) || 'Unknown'}
+        </span>
+      </div>
+      <dl className="mt-4 min-w-0 rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
+        <HttpHeaderExportDetailRow label="Response code">{provider.responseCode || provider.status || '-'}</HttpHeaderExportDetailRow>
+        <HttpHeaderExportDetailRow label="Lowest TTL">{formatDnsLowestTtl(records)}</HttpHeaderExportDetailRow>
+        <HttpHeaderExportDetailRow label="Answers">{formatDnsRecordValues(records)}</HttpHeaderExportDetailRow>
+        <HttpHeaderExportDetailRow label="Warnings">{warnings.length ? warnings.join(' ') : '-'}</HttpHeaderExportDetailRow>
+      </dl>
+    </article>
+  );
+}
+
+function DnsExportRecordList({ records, emptyText }: { records?: DnsRecord[] | null; emptyText: string }) {
+  const safeRecords = asDnsRecords(records);
+
+  if (safeRecords.length === 0) {
+    return <p className="text-sm leading-6 text-zinc-400">{emptyText}</p>;
+  }
+
+  return (
+    <div className="min-w-0 space-y-3">
+      {safeRecords.map((record, index) => (
+        <article key={`${record.name || 'record'}-${record.type || 'unknown'}-${index}`} className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
+          <dl className="min-w-0 rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
+            <HttpHeaderExportDetailRow label="Type">{record.type || 'Record'}</HttpHeaderExportDetailRow>
+            <HttpHeaderExportDetailRow label="Name">{record.name || '-'}</HttpHeaderExportDetailRow>
+            <HttpHeaderExportDetailRow label="TTL">{record.ttl === undefined ? '-' : `${record.ttl} seconds`}</HttpHeaderExportDetailRow>
+            <HttpHeaderExportDetailRow label="Value">{formatDnsRecord(record)}</HttpHeaderExportDetailRow>
+          </dl>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function DnsExportDiagnosticList({ diagnostics }: { diagnostics?: DnsDiagnostic[] | null }) {
+  const safeDiagnostics = asDnsDiagnostics(diagnostics);
+
+  if (safeDiagnostics.length === 0) {
+    return <p className="text-sm leading-6 text-zinc-400">No diagnostics were returned.</p>;
+  }
+
+  return (
+    <div className="min-w-0 space-y-3">
+      {safeDiagnostics.map((diagnostic, index) => {
+        const diagnosticId = getDnsDiagnosticId(diagnostic);
+
+        return (
+          <article key={`${diagnosticId}-${index}`} className="min-w-0 rounded-xl border border-white/10 bg-zinc-950/70 p-4">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <p className="break-words font-mono text-sm font-semibold text-zinc-100 [overflow-wrap:anywhere]">
+                {formatDiagnosticName(diagnosticId)}
+              </p>
+              {diagnostic.status && (
+                <span className="rounded-full border border-white/10 bg-zinc-900 px-2 py-0.5 text-xs font-semibold text-zinc-300">
+                  {diagnostic.status}
+                </span>
+              )}
+            </div>
+            <p className="mt-2 break-words text-sm leading-6 text-zinc-300 [overflow-wrap:anywhere]">
+              {diagnostic.message || 'No important diagnostics were reported.'}
+            </p>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function getDnsExportTarget(result: DnsCheckSuccess) {
+  return result.query?.displayName || result.query?.queryName || result.query?.input || '-';
 }
 
 function DnsCacheStatusNotice({ cache }: { cache: DnsCacheMetadata }) {
@@ -2453,6 +5622,18 @@ function formatDnsTtls(records: DnsRecord[] | null | undefined) {
   return ttls.length ? ttls.join(', ') : '-';
 }
 
+function formatDnsLowestTtl(records: DnsRecord[] | null | undefined) {
+  const ttls = asDnsRecords(records)
+    .map((record) => record.ttl)
+    .filter((ttl): ttl is number => typeof ttl === 'number' && Number.isFinite(ttl));
+
+  if (ttls.length === 0) {
+    return '-';
+  }
+
+  return `${Math.min(...ttls)} seconds`;
+}
+
 function formatDnsRecordValues(records: DnsRecord[] | null | undefined) {
   const safeRecords = asDnsRecords(records);
 
@@ -2742,6 +5923,10 @@ function formatUnknown(value: unknown) {
 }
 
 function formatDiagnosticName(value: string) {
+  if (value.toLowerCase() === 'dnssec_deep_checks') {
+    return 'DNSSEC deep checks';
+  }
+
   return value.replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
 }
 

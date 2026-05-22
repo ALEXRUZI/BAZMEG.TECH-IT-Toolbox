@@ -1,17 +1,20 @@
 # IT Toolbox | Bazmeg.Tech
 
-A browser-based toolbox for common sysadmin, network, Linux, and developer tasks.
+A browser-based toolbox for common sysadmin, network, Linux, DNS, TLS, web, and developer tasks.
 
-Note: This is an AI-assisted project. The code, structure, and documentation are being built with help from AI, but the project is reviewed, tested, and maintained manually.
+> This is an AI-assisted project. Code, structure, and documentation are built with help from AI, but the project is manually reviewed, tested, and maintained.
 
-The goal is to keep everyday infrastructure helpers in one simple frontend: generate firewall commands, convert data units, format text, calculate schedules, and create CSRs without sending sensitive input to a server.
+The goal is to keep everyday infrastructure helpers in one simple web app: generate firewall commands, inspect DNS records, check TLS certificates, review HTTP headers, calculate transfer times, generate passwords and secrets, create CSRs, convert timestamps, and format data.
+
+The project uses a frontend/backend split. Tools that can safely run in the browser stay browser-side. Network inspection tools use a backend API because browsers cannot directly perform those checks safely or reliably.
 
 ## Status
 
-Some tools are fully working in the browser. Other tools are currently marked as **planned** because they require a backend server to perform network-side checks safely and reliably. That backend is in the works.
+### Browser-side tools
 
-Working browser-side tools include:
+These tools run fully in the browser:
 
+- Password / secret generator
 - Firewalld generator
 - UFW generator
 - nftables generator
@@ -22,41 +25,97 @@ Working browser-side tools include:
 - Units of information calculator
 - CSR Generator
 - Base64 / URL encode
-- JSON/YAML formatter
+- JSON / YAML formatter
 
-Planned backend-backed tools include:
+### Backend-backed tools
 
-- DNS checker
-- HTTP headers
-- TLS cert checker
+These tools require the backend API:
+
+- DNS Checker
+- HTTP Header Checker
+- TLS / SSL Certificate Checker
+
+### Planned or future tools
+
 - RDAP / WHOIS lookup
-- Redirect checker
 - SMTP banner checker
 - Subnet calculator
 
-## CSR Generator
+## Privacy and Local Processing
 
-The CSR Generator runs in the browser. It creates the private key, public key, and CSR locally on the client device. No key material is sent to a server.
+Tools that handle sensitive generated data are designed to run locally in the browser where possible.
 
-By default it generates:
+The CSR Generator creates the private key, public key, and CSR on the client device. No key material is sent to a server.
 
-- PEM-encoded PKCS#10 CSR
-- PEM-encoded PKCS#8 private key
-- PEM-encoded public key
+The Password / Secret Generator also runs locally in the browser.
 
-Advanced export options are available for DER, encrypted PKCS#8, and traditional RSA/EC private key formats.
+Network inspection tools such as DNS Checker, HTTP Header Checker, and TLS / SSL Certificate Checker use the backend API because browsers cannot directly perform those checks safely or reliably.
 
 ## Tech Stack
+
+### Frontend
 
 - Vite
 - React
 - TypeScript
 - Tailwind CSS
 
+### Backend
+
+- Node.js
+- Native Node test runner
+
 ## Run Locally
 
-```bash
+The project has separate frontend and backend folders.
+
+### Start the backend
+
+PowerShell example:
+
+```powershell
+cd C:\Users\<your-user>\Documents\BAZMEG.TECH-IT-Toolbox\it-toolbox\backend
+
 npm install
+
+$env:BACKEND_SECRET = "dev-secret"
+
+"Backend secret is: $($env:BACKEND_SECRET)"
+
+node .\src\server.mjs
+```
+
+The backend listens locally on:
+
+```text
+http://127.0.0.1:3001
+```
+
+The `dev-secret` value is for local development only. Do not use it in production.
+
+### Test the backend
+
+Open a second PowerShell window and run:
+
+```powershell
+$Secret = "dev-secret"
+
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:3001/api/ping" `
+  -Headers @{ "X-Toolbox-Backend-Secret" = $Secret }
+```
+
+A successful response confirms that the backend is running and the local secret header is accepted.
+
+### Start the frontend
+
+PowerShell example:
+
+```powershell
+cd C:\Users\<your-user>\Documents\BAZMEG.TECH-IT-Toolbox\it-toolbox\frontend
+
+npm install
+
 npm run dev
 ```
 
@@ -68,47 +127,44 @@ http://localhost:5173
 
 ## Build
 
-```bash
-npm run build
+### Frontend
+
+```powershell
+cd frontend
+
+npm install
+
 npm run typecheck
+
+npm run build
 ```
 
-To preview the production build locally:
+### Backend
 
-```bash
-npm run preview
+```powershell
+cd backend
+
+npm install
+
+npm test
+```
+
+Backend syntax check example:
+
+```powershell
+node --check .\src\server.mjs
 ```
 
 ## Deployment
 
-Target URL:
+Target frontend URL:
 
 ```text
 https://toolbox.bazmeg.tech
 ```
 
-Deployment uses GitHub Pages through GitHub Actions. In the GitHub repository settings, Pages source must be set to **GitHub Actions**.
+The frontend is deployed as a static web app.
 
-The custom domain must be configured manually in GitHub repo **Settings -> Pages**:
+The backend is deployed separately because DNS lookup, HTTP header inspection, TLS certificate inspection, redirects, and similar checks require server-side network access.
 
-```text
-toolbox.bazmeg.tech
-```
-
-DNS must point the subdomain to GitHub Pages:
-
-```text
-Type: CNAME
-Name: toolbox
-Target: ALEXRUZI.github.io
-```
-
-For GitHub Actions Pages deployment, do not rely on `public/CNAME`; the custom domain is configured in GitHub Pages settings.
-
-For this custom domain, `vite.config.ts` must not use `base: '/BAZMEG.TECH-IT-Toolbox/'`. The default root base is correct for `https://toolbox.bazmeg.tech`.
-
-Deploy happens automatically from GitHub Actions after pushing to `main`.
-
-## Backend
-
-The current frontend is static-first. Tools such as DNS lookup, HTTP headers, TLS certificate inspection, RDAP/WHOIS, redirects, and SMTP banner checks need a backend because browsers cannot directly perform those network operations.
+Production secrets must be stored outside the repository, for example in server environment variables or platform secret storage.

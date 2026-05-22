@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import net from "node:net";
 import { checkDns, DnsCheckError } from "./tools/dns-check.mjs";
+import { checkHttpHeader, HttpHeaderCheckError } from "./tools/http-header-check.mjs";
 import { checkTlsCertificate, TlsCheckError } from "./tools/tls-check.mjs";
 
 const app = Fastify({
@@ -82,6 +83,40 @@ app.post("/api/tools/dns-check", async (request, reply) => {
         "INVALID_RESOLVER",
         "CUSTOM_RESOLVER_NOT_ALLOWED",
         "BULK_INPUT_NOT_ALLOWED",
+      ].includes(safeError.code) ? 400 : 502;
+
+    return reply.code(statusCode).send({
+      ok: false,
+      error: {
+        code: safeError.code,
+        message: safeError.safeMessage,
+      },
+    });
+  }
+});
+
+app.post("/api/tools/http-header-check", async (request, reply) => {
+  try {
+    return await checkHttpHeader(request.body || {}, {
+      clientIp: getClientIp(request),
+      logger: request.log,
+    });
+  } catch (error) {
+    const safeError = error instanceof HttpHeaderCheckError
+      ? error
+      : new HttpHeaderCheckError("HTTP_HEADER_CHECK_FAILED", "HTTP header check failed.");
+
+    const statusCode = safeError.code === "RATE_LIMITED"
+      ? 429
+      : [
+        "INVALID_TARGET",
+        "UNSUPPORTED_PROTOCOL",
+        "IP_NOT_ALLOWED",
+        "LOCAL_HOSTNAME_NOT_ALLOWED",
+        "INVALID_PORT",
+        "DNS_LOOKUP_FAILED",
+        "BLOCKED_TARGET",
+        "BLOCKED_REDIRECT",
       ].includes(safeError.code) ? 400 : 502;
 
     return reply.code(statusCode).send({

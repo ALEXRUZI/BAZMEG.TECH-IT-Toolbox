@@ -2,15 +2,17 @@
   "name": "backend",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/server.mjs",
   "scripts": {
-    "test": "node --test"
+    "start": "node src/server.mjs",
+    "test": "node --test",
+    "check": "node --check src/server.mjs && node --check src/tls-route.mjs && node --check src/dns-route.mjs && node --check src/http-route.mjs && node --check src/tools/dns-check.mjs && node --check src/tools/dns-resources.mjs && node --check src/tools/http-header-check.mjs && node --check src/tools/http-resources.mjs && node --check src/tools/tls-check.mjs && node --check src/tools/tls-certificate.mjs && node --check src/tools/tls-network.mjs && node --check test/dns-check.test.mjs && node --check test/dns-resources.test.mjs && node --check test/http-header-check.test.mjs && node --check test/http-resources.test.mjs && node --check test/tls-check.test.mjs && node --check test/tls-certificate.test.mjs && node --check test/tls-resources.test.mjs && node --check test/server.test.mjs && node scripts/check-registration.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
-    "fastify": "^5.8.5"
+    "fastify": "^5.12.5"
   }
 }

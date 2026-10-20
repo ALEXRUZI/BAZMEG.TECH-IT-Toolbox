@@ -1,0 +1,331 @@
+name: Production deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Exact owner-approved public main commit (40 lowercase hex characters)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toolbox-production
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: >-
+      github.repository == 'ALEXRUZI/BAZMEG.TECH-IT-Toolbox' &&
+      github.ref == 'refs/heads/main' && inputs.approved_sha == github.sha &&
+      github.actor == 'ALEXRUZI' && github.triggering_actor == 'ALEXRUZI' &&
+      github.run_attempt == 1 &&
+      vars.TOOLBOX_PRODUCTION_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: deploy
+      - name: Verify triggering owner can self-approve before requesting environment review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+        run: |
+          set -Eeuo pipefail
+          python3 -I deploy/verify-production.py
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .protected)" == true ]]
+
+  checks:
+    needs: authorize
+    uses: ./.github/workflows/deploy.yml
+
+  validate-package:
+    needs: checks
+    timeout-minutes: 15
+    outputs:
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+      digest: ${{ steps.package.outputs.digest }}
+    if: >-
+      github.repository == 'ALEXRUZI/BAZMEG.TECH-IT-Toolbox' &&
+      github.ref == 'refs/heads/main' &&
+      vars.TOOLBOX_PRODUCTION_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout approved main revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Confirm exact approved revision and publication receipt
+        env:
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$APPROVED_SHA" == "$GITHUB_SHA" ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" == "$GITHUB_SHA" ]]
+          python3 -B ../deploy/verify-publication.py
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Syntax checks
+        run: npm run check
+      - name: Backend unit tests
+        run: npm test
+      - name: Package backend source
+        id: package
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          # Archive committed objects, never files modified by npm/tests.
+          # The backend tree produces unprefixed members accepted by the root script.
+          git -C "$GITHUB_WORKSPACE" archive --format=tar \
+            --mtime="$(git -C "$GITHUB_WORKSPACE" show -s --format=%cI "$GITHUB_SHA")" "${GITHUB_SHA}:backend" \
+            package.json package-lock.json src | gzip -n \
+            > "$RUNNER_TEMP/backend-${GITHUB_SHA}.tar.gz"
+          cd "$RUNNER_TEMP"
+          sha256sum "backend-${GITHUB_SHA}.tar.gz" > "backend-${GITHUB_SHA}.tar.gz.sha256"
+          sha256sum -c "backend-${GITHUB_SHA}.tar.gz.sha256"
+          echo "digest=$(sha256sum "backend-${GITHUB_SHA}.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable release candidate
+        id: artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/backend-${{ github.sha }}.tar.gz
+            ${{ runner.temp }}/backend-${{ github.sha }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  build-frontend:
+    needs: checks
+    outputs:
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+      - name: Build assets and precompile Pages Function without credentials
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          set -Eeuo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          python3 -B deploy/verify-publication.py
+          npm ci --prefix frontend
+          npm run build --prefix frontend
+          npm run check:ssh-bundle --prefix frontend
+          npm ci --prefix deploy/pages
+          npm test --prefix deploy/pages
+          # The advanced-mode Worker is the compiled frontend/functions tree,
+          # not a static-only dist upload. No runtime binding values enter it.
+          deploy/pages/node_modules/.bin/wrangler pages functions build frontend/functions \
+            --outdir frontend/dist/_worker.js --output-routes-path frontend/dist/_routes.json
+          test -s frontend/dist/_worker.js/index.js
+          test -s frontend/dist/_routes.json
+          python3 -B deploy/pages-artifact.py seal frontend/dist "$GITHUB_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        id: artifact
+        with:
+          name: pages-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: frontend/dist/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy-backend:
+    needs: [validate-package, build-frontend]
+    outputs:
+      digest: ${{ needs.validate-package.outputs.digest }}
+    if: >-
+      github.repository == 'ALEXRUZI/BAZMEG.TECH-IT-Toolbox' &&
+      github.ref == 'refs/heads/main' &&
+      vars.TOOLBOX_PRODUCTION_ENABLED == 'true'
+    # Ephemeral hosted runner: never expose a persistent runner to public PRs.
+    runs-on: ubuntu-24.04
+    environment: production
+    permissions:
+      actions: read
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: deploy
+      - name: Verify owner can approve this exact deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+        run: |
+          set -Eeuo pipefail
+          python3 -I deploy/verify-production.py --environment production
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .protected)" == true ]]
+      - name: Require exact backend producer artifact ID
+        env:
+          ARTIFACT_ID: ${{ needs.validate-package.outputs.artifact_id }}
+        run: '[[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]]'
+      - name: Download tested backend
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.validate-package.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/toolbox-backend-release
+      - name: Verify release archive hash
+        shell: bash
+        working-directory: ${{ runner.temp }}/toolbox-backend-release
+        env:
+          EXPECTED_DIGEST: ${{ needs.validate-package.outputs.digest }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$EXPECTED_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$(sha256sum "backend-${GITHUB_SHA}.tar.gz" | cut -d' ' -f1)" == "$EXPECTED_DIGEST" ]]
+          sha256sum -c "backend-${GITHUB_SHA}.tar.gz.sha256"
+      - name: Send release and activate it on backend host
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.PRODUCTION_BACKEND_SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.PRODUCTION_BACKEND_SSH_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.PRODUCTION_BACKEND_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.PRODUCTION_BACKEND_SSH_KNOWN_HOSTS }}
+          GH_TOKEN: ${{ github.token }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+        run: |
+          set -Eeuo pipefail
+          python3 -I deploy/verify-production.py --environment production
+          : "${DEPLOY_HOST:?Missing production SSH host}"
+          : "${DEPLOY_USER:?Missing production SSH user}"
+          : "${DEPLOY_SSH_KEY:?Missing production SSH key}"
+          : "${DEPLOY_KNOWN_HOSTS:?Missing production SSH host pin}"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || exit 1
+          [[ "$DEPLOY_USER" == toolboxdeploy ]] || exit 1
+          remote="${DEPLOY_USER}@${DEPLOY_HOST}"
+          dir="$RUNNER_TEMP/toolbox-backend-release"
+          archive="$dir/backend-${GITHUB_SHA}.tar.gz"
+          sha="$(sha256sum "$archive" | cut -d' ' -f1)"
+          ssh_dir="$(mktemp -d "$RUNNER_TEMP/toolbox-prod-ssh.XXXXXXXX")"
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          chmod 700 "$ssh_dir"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$ssh_dir/id_ed25519"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          chmod 600 "$ssh_dir/id_ed25519" "$ssh_dir/known_hosts"
+          ssh_opts=(-i "$ssh_dir/id_ed25519" -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+          # The deploy account has write access ONLY to this incoming directory.
+          scp "${ssh_opts[@]}" "$archive" \
+            "${remote}:/var/lib/toolbox-deploy/incoming/backend-${GITHUB_SHA}.tar.gz"
+          # Only this root-owned script is authorized in the deploy account's sudoers rule.
+          ssh "${ssh_opts[@]}" "$remote" \
+            "sudo -n /usr/local/sbin/toolbox-backend-deploy '${GITHUB_SHA}' '${sha}'"
+      - name: Verify authenticated ingress through the still-live Pages Function
+        env:
+          PRODUCTION_PAGES_URL: ${{ vars.PRODUCTION_PAGES_URL }}
+          EXPECTED_BACKEND_DIGEST: ${{ needs.validate-package.outputs.digest }}
+        run: python3 -I deploy/verify-pages-health.py
+
+  deploy-frontend:
+    needs: [deploy-backend, build-frontend]
+    if: >-
+      github.repository == 'ALEXRUZI/BAZMEG.TECH-IT-Toolbox' &&
+      github.ref == 'refs/heads/main' &&
+      vars.TOOLBOX_PRODUCTION_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    environment: production-pages
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: deploy
+      - name: Recheck owner approval and reject stale main before frontend
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+        run: python3 -I deploy/verify-production.py --environment production-pages
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+      - name: Install pinned deployment tool without production credentials
+        run: npm ci --ignore-scripts --prefix deploy/pages
+      - name: Require exact frontend producer artifact ID
+        env:
+          ARTIFACT_ID: ${{ needs.build-frontend.outputs.artifact_id }}
+        run: '[[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]]'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.build-frontend.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/toolbox-pages
+      - name: Verify complete immutable Pages artifact
+        run: |
+          set -Eeuo pipefail
+          cp "$RUNNER_TEMP/toolbox-pages/.toolbox-artifact.json" "$RUNNER_TEMP/pages-verified.json"
+          python3 -I deploy/pages-artifact.py verify "$RUNNER_TEMP/toolbox-pages" "$GITHUB_SHA"
+      - name: Deploy only verified assets and precompiled Function to existing project
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PRODUCTION_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODUCTION_CLOUDFLARE_ACCOUNT_ID }}
+          PRODUCTION_PAGES_PROJECT: ${{ vars.PRODUCTION_PAGES_PROJECT }}
+          PRODUCTION_PAGES_URL: ${{ vars.PRODUCTION_PAGES_URL }}
+          EXPECTED_BACKEND_DIGEST: ${{ needs.deploy-backend.outputs.digest }}
+          WRANGLER_SEND_METRICS: 'false'
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/pages-deploy.jsonl
+          GH_TOKEN: ${{ github.token }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+        run: |
+          set -Eeuo pipefail
+          python3 -I deploy/verify-production.py --environment production-pages
+          # Approval may have waited while the backend changed; recheck before upload.
+          python3 -I deploy/verify-pages-health.py
+          # API preflight: existing project only, automatic Git builds disabled,
+          # required production bindings present. No config/secret value is printed.
+          python3 -I deploy/verify-cloudflare.py before
+          tool="$GITHUB_WORKSPACE/deploy/pages/node_modules/.bin/wrangler"
+          # Clean directory outside the checkout: cannot discover repository config,
+          # dotenv, functions, custom build hooks, or npm scripts with credentials.
+          cd "$RUNNER_TEMP/toolbox-pages"
+          "$tool" pages deploy . --project-name "$PRODUCTION_PAGES_PROJECT" \
+            --branch main --commit-hash "$GITHUB_SHA" --commit-dirty=false \
+            --commit-message "Approved production release" --no-bundle
+          python3 -I "$GITHUB_WORKSPACE/deploy/verify-cloudflare.py" after
+      - name: Verify deployed frontend and authenticated Function
+        env:
+          PRODUCTION_PAGES_URL: ${{ vars.PRODUCTION_PAGES_URL }}
+          EXPECTED_BACKEND_DIGEST: ${{ needs.deploy-backend.outputs.digest }}
+        run: python3 -I deploy/verify-pages-health.py "$RUNNER_TEMP/pages-verified.json"

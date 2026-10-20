@@ -1,35 +1,79 @@
-name: Frontend CI
+name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   frontend:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          node-version: 22
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+          check-latest: true
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run typecheck:pages
+      - run: npm run test:pages
+      - run: npm run build
+      - run: npm run check:ssh-bundle
+      - run: npm run test:unit
+      - run: npx playwright install --with-deps chromium
+      - name: Browser tests
+        id: e2e
+        run: npm run test:e2e
+      - name: Upload sanitized browser failure diagnostics
+        if: failure() && steps.e2e.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-safe-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: frontend/e2e-diagnostics/summary.json
+          retention-days: 7
+          if-no-files-found: warn
 
-      - name: Install dependencies
-        run: npm ci
+  backend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run check
 
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Build
-        run: npm run build
+  deployment-regressions:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+      - run: python3 -B -m unittest discover -s deploy/tests -v
+      - name: Qualify pinned Pages Function bundle and bindings offline
+        run: |
+          npm ci --prefix deploy/pages
+          npm test --prefix deploy/pages

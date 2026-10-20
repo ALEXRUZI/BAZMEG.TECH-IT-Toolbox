@@ -1,22 +1,22 @@
-import dns from "node:dns/promises";
+import { HttpHeaderCheckError, HTTP_LIMITS, admitHttp, acquireHttpSocket, createHttpOperation, resolveHttpAddresses } from "./http-resources.mjs";
+export { HttpHeaderCheckError } from "./http-resources.mjs";
 import http from "node:http";
 import https from "node:https";
 import net from "node:net";
 import tls from "node:tls";
 import { STATUS_CODES } from "node:http";
 import { domainToASCII } from "node:url";
+import { BoundedCache, BoundedRateHistory, RETENTION_LIMITS, pruneHistory } from "./retained-state.mjs";
 
 const CACHE_TTL_SECONDS = 60;
 const REDIRECT_LIMIT = 2;
-const REQUEST_TIMEOUT_MS = 7000;
-const DNS_FAMILY_TIMEOUT_MS = 3000;
+const REQUEST_TIMEOUT_MS = HTTP_LIMITS.attemptMs;
 const RATE_WINDOW_FIVE_MINUTES_MS = 5 * 60 * 1000;
 const RATE_WINDOW_HOUR_MS = 60 * 60 * 1000;
 const RATE_LIMIT_FIVE_MINUTES = 80;
 const RATE_LIMIT_HOUR = 500;
 const TARGET_RATE_LIMIT_FIVE_MINUTES = 30;
 const GLOBAL_RATE_LIMIT_FIVE_MINUTES = 350;
-const ACTIVE_CHECK_LIMIT = 12;
 
 export const HTTP_HEADER_CACHE_TTL_SECONDS = CACHE_TTL_SECONDS;
 export const HTTP_HEADER_REDIRECT_LIMIT = REDIRECT_LIMIT;
@@ -100,24 +100,15 @@ const LOCAL_SUFFIXES = [
   ".localdomain",
 ];
 
-const cache = new Map();
-const rateBuckets = new Map();
-const targetRateBuckets = new Map();
+const cache = new BoundedCache();
+const rateBuckets = new BoundedRateHistory(RETENTION_LIMITS.httpClients, RATE_LIMIT_HOUR);
+const targetRateBuckets = new BoundedRateHistory(RETENTION_LIMITS.httpTargets, RATE_LIMIT_HOUR);
 const globalRateBucket = [];
-let activeChecks = 0;
 let trustedTlsCaCertificates = null;
 
-export class HttpHeaderCheckError extends Error {
-  constructor(code, message, options = {}) {
-    super(message);
-    this.name = "HttpHeaderCheckError";
-    this.code = code;
-    this.safeMessage = message;
-
-    if (options.cause) {
-      this.cause = options.cause;
-    }
-  }
+export function httpRetainedState() {
+  return { cacheEntries: cache.size, rateClientEntries: rateBuckets.size,
+    rateTargetEntries: targetRateBuckets.size, globalHistoryEntries: globalRateBucket.length };
 }
 
 export async function checkHttpHeader(payload, options = {}) {
@@ -125,11 +116,14 @@ export async function checkHttpHeader(payload, options = {}) {
   const request = normalizeHttpHeaderCheckRequest(payload || {});
   const checkSpecs = buildCheckSpecs(request);
   const startedAt = now();
+  rateBuckets.prune(startedAt);
+  targetRateBuckets.prune(startedAt);
+  pruneHistory(globalRateBucket, startedAt, RATE_WINDOW_HOUR_MS);
   const checks = [];
   const freshSpecs = [];
 
   for (const spec of checkSpecs) {
-    const cached = cache.get(spec.cacheKey);
+    const cached = cache.get(spec.cacheKey, startedAt);
 
     if (cached && cached.expiresAt > startedAt) {
       checks.push(withCheckCacheMetadata(cached.response, {
@@ -138,27 +132,30 @@ export async function checkHttpHeader(payload, options = {}) {
         now: startedAt,
       }));
     } else {
-      if (cached) {
-        cache.delete(spec.cacheKey);
-      }
-
       freshSpecs.push(spec);
     }
   }
 
   const tokensConsumed = freshSpecs.length;
+  if (options.signal?.aborted) {
+    throw new HttpHeaderCheckError("HTTP_CHECK_CANCELLED", "HTTP header check was cancelled.");
+  }
 
   if (tokensConsumed > 0) {
     enforceRateLimit(options.clientIp || "unknown", request.cleanHost, tokensConsumed, startedAt);
   }
 
-  const release = acquireActiveCheck(tokensConsumed);
+  const release = admitHttp(options.clientIp || "unknown", tokensConsumed);
+  const operation = createHttpOperation(request.protocolMode, options);
+  const pendingCache = [];
 
   try {
     for (const spec of freshSpecs) {
       const response = await runProtocolCheck(spec, {
-        resolveAddresses: options.resolveAddresses || resolvePublicAddresses,
+        resolveAddresses: options.resolveAddresses || ((host) => resolveHttpAddresses(host, operation, options)),
         requestUrl: options.requestUrl || requestHeaders,
+        injectedRequest: Boolean(options.requestUrl),
+        operation,
         logger: options.logger,
         now,
       });
@@ -169,14 +166,27 @@ export async function checkHttpHeader(payload, options = {}) {
         now: startedAt,
       });
 
-      cache.set(spec.cacheKey, {
+      operation.assertLive();
+      if (response.ok !== false) pendingCache.push([spec.cacheKey, {
         storedAt: startedAt,
         expiresAt: startedAt + CACHE_TTL_SECONDS * 1000,
         response: clone(responseWithCacheMetadata),
-      });
+      }]);
       checks.push(responseWithCacheMetadata);
     }
+    operation.assertLive();
+    const completedAt = now();
+    cache.setMany(pendingCache, completedAt, operation.assertLive);
+  } catch (error) {
+    // Preserve reuse of a completed protocol when the other protocol has an
+    // ordinary connection/validation failure, but never publish partial cache
+    // results from a cancelled or expired diagnostic.
+    operation.assertLive();
+    const completedAt = now();
+    cache.setMany(pendingCache, completedAt, operation.assertLive);
+    throw error;
   } finally {
+    operation.dispose();
     release();
   }
 
@@ -226,7 +236,6 @@ export function resetHttpHeaderCheckState() {
   rateBuckets.clear();
   targetRateBuckets.clear();
   globalRateBucket.length = 0;
-  activeChecks = 0;
 }
 
 export function isBlockedPublicAddress(address) {
@@ -278,18 +287,32 @@ function normalizeTargetHost(value) {
   return normalizePublicHostname(host);
 }
 
-function normalizeRedirectHost(url) {
+function normalizeDestinationHost(url, errorCode = "BLOCKED_REDIRECT") {
   if (!["http:", "https:"].includes(url.protocol)) {
-    throw new HttpHeaderCheckError("BLOCKED_REDIRECT", "Redirect target is blocked because it points to a private/internal/unsupported address.");
+    throw new HttpHeaderCheckError(errorCode, "Destination is blocked because only HTTP and HTTPS URLs are supported.");
+  }
+
+  if (url.username || url.password) {
+    throw new HttpHeaderCheckError(errorCode, "Destination is blocked because URL credentials are not allowed.");
+  }
+
+  const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
+
+  if (!isSupportedDestinationPort(url.protocol, port)) {
+    throw new HttpHeaderCheckError(errorCode, `Destination is blocked because port ${port} is not supported for ${url.protocol === "https:" ? "HTTPS" : "HTTP"}.`);
   }
 
   const host = url.hostname.replace(/^\[/, "").replace(/\]$/, "").replace(/\.$/, "").toLowerCase();
 
   if (net.isIP(host) !== 0) {
-    throw new HttpHeaderCheckError("BLOCKED_REDIRECT", "Redirect target is blocked because it points to a private/internal/unsupported address.");
+    throw new HttpHeaderCheckError(errorCode, "Redirect target is blocked because it points to a private/internal/unsupported address.");
   }
 
-  return normalizePublicHostname(host, "BLOCKED_REDIRECT");
+  return normalizePublicHostname(host, errorCode);
+}
+
+function isSupportedDestinationPort(protocol, port) {
+  return (protocol === "https:" ? HTTPS_PORT_SET : HTTP_PORT_SET).has(port);
 }
 
 function normalizePublicHostname(host, errorCode = null) {
@@ -335,9 +358,7 @@ function normalizeSelectedPort(port, protocolMode) {
   }
 
   const portNumber = Number(port);
-  const allowed = protocolMode === "https" ? HTTPS_PORT_SET : HTTP_PORT_SET;
-
-  if (!Number.isInteger(portNumber) || !allowed.has(portNumber)) {
+  if (!Number.isInteger(portNumber) || !isSupportedDestinationPort(`${protocolMode}:`, portNumber)) {
     throw new HttpHeaderCheckError("INVALID_PORT", "Port is not supported. Use the Advanced port dropdown with a supported HTTP/HTTPS port.");
   }
 
@@ -382,12 +403,16 @@ async function runProtocolCheck(spec, options) {
   let addresses = [];
 
   for (let requestIndex = 0; requestIndex < REDIRECT_LIMIT + 1; requestIndex += 1) {
+    options.operation.assertLive();
     try {
-      const cleanHost = requestIndex === 0 ? spec.host : normalizeRedirectHost(currentUrl);
-      const resolvedAddresses = await options.resolveAddresses(cleanHost);
+      const cleanHost = normalizeDestinationHost(currentUrl, requestIndex === 0 ? "BLOCKED_TARGET" : "BLOCKED_REDIRECT");
+      const resolvedAddresses = await options.operation.wait(options.resolveAddresses(cleanHost, { signal: options.operation.signal, operation: options.operation }), Infinity);
+      options.operation.assertLive();
       const addressErrorCode = requestIndex === 0 ? "BLOCKED_TARGET" : "BLOCKED_REDIRECT";
       addresses = normalizeResolvedPublicAddresses(resolvedAddresses, addressErrorCode);
     } catch (error) {
+      options.operation.assertLive();
+      if (error?.code === "HTTP_CAPACITY_EXHAUSTED") throw error;
       if (requestIndex > 0) {
         return buildBlockedRedirectCheck(spec, chain, redirects, currentUrl, error);
       }
@@ -395,11 +420,16 @@ async function runProtocolCheck(spec, options) {
       throw error;
     }
 
-    lastResponse = await options.requestUrl(currentUrl, {
-      timeoutMs: REQUEST_TIMEOUT_MS,
+    const pendingResponse = options.requestUrl(currentUrl, {
+      timeoutMs: options.operation.timeoutMs(REQUEST_TIMEOUT_MS),
       addresses,
       logger: options.logger,
+      signal: options.operation.signal,
+      operation: options.operation,
     });
+    lastResponse = await (options.injectedRequest
+      ? options.operation.wait(pendingResponse, Infinity) : pendingResponse);
+    options.operation.assertLive();
 
     const location = getHeaderValue(lastResponse.headers, "location");
 
@@ -412,9 +442,9 @@ async function runProtocolCheck(spec, options) {
 
       try {
         nextUrl = new URL(location, currentUrl);
-        normalizeRedirectHost(nextUrl);
-      } catch {
-        return buildBlockedRedirectCheck(spec, chain, redirects, currentUrl, null, location, lastResponse);
+        normalizeDestinationHost(nextUrl);
+      } catch (error) {
+        return buildBlockedRedirectCheck(spec, chain, redirects, currentUrl, error, location, lastResponse);
       }
 
       redirectsFollowed += 1;
@@ -542,12 +572,6 @@ function buildRedirectHop(fromUrl, to, response, location = null) {
   };
 }
 
-async function resolvePublicAddresses(host) {
-  const addresses = await resolveAddresses(host);
-
-  return normalizeResolvedPublicAddresses(addresses, "BLOCKED_TARGET");
-}
-
 function normalizeResolvedPublicAddresses(addresses, errorCode) {
   const publicAddresses = [...new Set((Array.isArray(addresses) ? addresses : [])
     .map((address) => String(address || "").trim())
@@ -566,60 +590,46 @@ function normalizeResolvedPublicAddresses(addresses, errorCode) {
   return publicAddresses;
 }
 
-async function resolveAddresses(host) {
-  const lookups = await Promise.all([
-    resolveDnsFamily(dns.resolve4(host)),
-    resolveDnsFamily(dns.resolve6(host)),
-  ]);
-  const addresses = [...new Set(lookups.flat())];
-
-  if (addresses.length > 0) {
-    return addresses;
+// Only select from the complete, validated, deduplicated answer set. Alternate
+// families so a long IPv4 answer cannot exclude IPv6 from the four-attempt cap.
+function selectAddressAttempts(publicAddresses) {
+  const ipv4 = publicAddresses.filter((address) => net.isIP(address) === 4);
+  const ipv6 = publicAddresses.filter((address) => net.isIP(address) === 6);
+  const attempts = [];
+  for (let index = 0; attempts.length < HTTP_LIMITS.addresses && (index < ipv4.length || index < ipv6.length); index += 1) {
+    if (ipv4[index]) attempts.push(ipv4[index]);
+    if (ipv6[index] && attempts.length < HTTP_LIMITS.addresses) attempts.push(ipv6[index]);
   }
+  return attempts;
+}
 
+export async function requestHeaders(url, { timeoutMs = REQUEST_TIMEOUT_MS, addresses = null, logger = null, signal, operation } = {}) {
+  const ownedOperation = !operation;
+  operation ||= createHttpOperation("http", { signal });
   try {
-    const lookupAddresses = await dns.lookup(host, { all: true });
-    addresses.push(...lookupAddresses.map((record) => record.address));
-  } catch {
-    throw new HttpHeaderCheckError("DNS_LOOKUP_FAILED", "DNS lookup failed for this hostname.");
-  }
+    operation.assertLive();
+    normalizeDestinationHost(url, "BLOCKED_TARGET");
+    const publicAddresses = normalizeResolvedPublicAddresses(addresses || await resolveHttpAddresses(url.hostname, operation), "BLOCKED_TARGET");
+    const errors = [];
 
-  if (addresses.length === 0) {
-    throw new HttpHeaderCheckError("DNS_LOOKUP_FAILED", "DNS lookup failed for this hostname.");
-  }
-
-  return [...new Set(addresses)];
-}
-
-function resolveDnsFamily(lookup) {
-  return Promise.race([
-    lookup.catch(() => []),
-    new Promise((resolve) => {
-      setTimeout(() => resolve([]), DNS_FAMILY_TIMEOUT_MS);
-    }),
-  ]);
-}
-
-export async function requestHeaders(url, { timeoutMs, addresses = null, logger = null } = {}) {
-  const publicAddresses = addresses
-    ? normalizeResolvedPublicAddresses(addresses, "BLOCKED_TARGET")
-    : await resolvePublicAddresses(url.hostname);
-  const errors = [];
-
-  for (const address of publicAddresses) {
-    try {
-      return await requestHeadersAddress(url, address, timeoutMs);
-    } catch (error) {
-      errors.push(error);
-      logHttpHeaderRequestFailure(logger, {
-        url,
-        address,
-        error,
-      });
+    for (const address of selectAddressAttempts(publicAddresses)) {
+      operation.assertLive();
+      try {
+        const result = await requestHeadersAddress(url, address, operation.timeoutMs(timeoutMs), { signal: operation.signal });
+        operation.assertLive();
+        return result;
+      } catch (error) {
+        operation.assertLive();
+        if (error?.code === "HTTP_CAPACITY_EXHAUSTED") throw error;
+        errors.push(error);
+        logHttpHeaderRequestFailure(logger, { url, address, error });
+      }
     }
-  }
 
-  throw classifyRequestError(errors[errors.length - 1]);
+    throw classifyRequestError(errors[errors.length - 1]);
+  } finally {
+    if (ownedOperation) operation.dispose();
+  }
 }
 
 function classifyRequestError(error) {
@@ -686,8 +696,59 @@ function safeLogValue(value) {
     .slice(0, 500);
 }
 
-export function requestHeadersAddress(url, address, timeoutMs) {
+export function requestHeadersAddress(url, address, timeoutMs = REQUEST_TIMEOUT_MS, { signal } = {}) {
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  const release = acquireHttpSocket();
   return new Promise((resolve, reject) => {
+    let request;
+    let socket;
+    let result;
+    let failure;
+    let stopped = false;
+    let settled = false;
+    let timer;
+    const complete = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      request?.removeListener("timeout", timeout);
+      request?.removeListener("socket", assigned);
+      socket?.removeListener("close", complete);
+      // Keep the request error handler until request close: destroy can emit an
+      // error after socket close. It is inert after settlement and owns that event.
+      release();
+      if (signal?.aborted) failure = signal.reason;
+      if (failure || !result) reject(failure || new Error("HTTP request closed before headers."));
+      else resolve(result);
+    };
+    const stop = (error, value) => {
+      if (stopped) return;
+      stopped = true;
+      failure = error;
+      result = value;
+      request.destroy();
+      socket?.destroy();
+    };
+    const abort = () => {
+      // Cancellation during asynchronous close must override header success.
+      failure = signal.reason;
+      stop(failure);
+    };
+    const timeout = () => {
+      const error = Object.assign(new Error("HTTP header request timed out."), { code: "REQUEST_TIMEOUT" });
+      stop(error);
+    };
+    const assigned = (value) => {
+      socket = value;
+      socket.once("close", complete);
+      if (stopped) socket.destroy();
+    };
+    const requestClosed = () => {
+      request.removeListener("error", failed);
+      if (!socket || socket.closed) complete();
+    };
+    const failed = (error) => stop(error);
     const isHttps = url.protocol === "https:";
     const transport = isHttps ? https : http;
     const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
@@ -697,6 +758,8 @@ export function requestHeadersAddress(url, address, timeoutMs) {
       path: `${url.pathname || "/"}${url.search || ""}`,
       method: "GET",
       timeout: timeoutMs,
+      agent: false,
+      maxHeaderSize: 16 * 1024,
       headers: {
         Host: formatHostHeader(url.hostname, port, url.protocol),
         "User-Agent": "BAZMEG.TECH IT Toolbox HTTP Header Checker",
@@ -705,30 +768,39 @@ export function requestHeadersAddress(url, address, timeoutMs) {
       },
     };
 
-    if (isHttps) {
-      requestOptions.servername = url.hostname;
-      requestOptions.ca = getTrustedTlsCaCertificates();
-      requestOptions.checkServerIdentity = (_hostname, cert) => tls.checkServerIdentity(url.hostname, cert);
-    }
-
-    const request = transport.request(requestOptions, (response) => {
-      const headers = rawHeadersToList(response.rawHeaders);
-
-      response.destroy();
-      resolve({
-        status: response.statusCode || 0,
-        statusText: response.statusMessage || STATUS_CODES[response.statusCode] || null,
-        headers,
+    try {
+      if (isHttps) {
+        requestOptions.servername = url.hostname;
+        requestOptions.ca = getTrustedTlsCaCertificates();
+        requestOptions.checkServerIdentity = (_hostname, cert) => tls.checkServerIdentity(url.hostname, cert);
+      }
+      request = transport.request(requestOptions, (response) => {
+        if (stopped || signal?.aborted) {
+          response.destroy();
+          if (signal?.aborted) abort();
+          return;
+        }
+        const value = {
+          status: response.statusCode || 0,
+          statusText: response.statusMessage || STATUS_CODES[response.statusCode] || null,
+          headers: rawHeadersToList(response.rawHeaders),
+        };
+        response.destroy();
+        stop(null, value);
       });
-    });
-
-    request.once("timeout", () => {
-      const timeoutError = new Error("HTTP header request timed out.");
-      timeoutError.code = "REQUEST_TIMEOUT";
-      request.destroy(timeoutError);
-    });
-    request.once("error", reject);
-    request.end();
+      request.once("socket", assigned);
+      request.once("close", requestClosed);
+      request.once("timeout", timeout);
+      request.on("error", failed);
+      signal?.addEventListener("abort", abort, { once: true });
+      // Wall-clock attempt cap also covers connection/handshake, not just idle IO.
+      timer = setTimeout(timeout, Math.ceil(Math.min(timeoutMs, REQUEST_TIMEOUT_MS)));
+      if (signal?.aborted) abort();
+      request.end();
+    } catch (error) {
+      if (request) stop(error);
+      else { failure = error; complete(); }
+    }
   });
 }
 
@@ -820,7 +892,6 @@ function analyzeHeaders(headers, finalUrl) {
   const values = (name) => getHeaderValues(headers, name);
   const first = (name) => values(name)[0] || "";
   const isHttps = finalUrl.protocol === "https:";
-  const hsts = first("strict-transport-security");
   const cspValues = values("content-security-policy");
   const csp = cspValues[0] || "";
   const xContentTypeOptions = first("x-content-type-options");
@@ -854,19 +925,7 @@ function analyzeHeaders(headers, finalUrl) {
     ));
   }
 
-  if (isHttps && !hsts) {
-    findings.push(finding("warning", "MISSING_HSTS", "Missing HSTS", "The HTTPS response did not include Strict-Transport-Security.", "Add HSTS after confirming the site is ready to require HTTPS."));
-  } else if (isHttps && hsts) {
-    const maxAge = Number(hsts.match(/max-age=(\d+)/i)?.[1] || 0);
-
-    if (maxAge > 0 && maxAge < 15552000) {
-      findings.push(finding("warning", "HSTS_MAX_AGE_LOW", "HSTS max-age is low", "Strict-Transport-Security is present, but max-age is lower than six months.", "Use a longer max-age once HTTPS is stable."));
-    }
-
-    if (!/includesubdomains/i.test(hsts)) {
-      findings.push(finding("warning", "HSTS_MISSING_INCLUDE_SUBDOMAINS", "HSTS does not include subdomains", "HSTS is present without includeSubDomains.", "Consider includeSubDomains if all subdomains support HTTPS."));
-    }
-  }
+  findings.push(...analyzeHsts(values("strict-transport-security"), isHttps));
 
   if (!csp) {
     findings.push(finding("warning", "MISSING_CSP", "Missing Content Security Policy", "No Content-Security-Policy header was detected.", "Add a CSP that matches the application instead of copying a generic policy."));
@@ -1046,15 +1105,106 @@ function isBroadCookieDomain(domain, host) {
   return normalizedDomain !== normalizedHost || normalizedDomain.split(".").length <= 2;
 }
 
-function analyzeCors(headers) {
-  const allowOrigin = getHeaderValue(headers, "access-control-allow-origin");
-  const allowCredentials = getHeaderValue(headers, "access-control-allow-credentials");
-
-  if (allowOrigin.trim() === "*" && allowCredentials.trim().toLowerCase() === "true") {
-    return [finding("critical", "CORS_WILDCARD_WITH_CREDENTIALS", "Dangerous CORS credentials policy", "Access-Control-Allow-Origin is * while Access-Control-Allow-Credentials is true.", "Do not combine wildcard origins with credentialed CORS responses.")];
+// Findings describe the observed response, not cached/preloaded browser state.
+// RFC 6797: only the first STS field is processed over a secure connection.
+function analyzeHsts(headerValues, isHttps) {
+  if (!isHttps) {
+    return headerValues.length ? [finding("warning", "HSTS_OVER_HTTP", "HSTS received over HTTP", "Browsers ignore Strict-Transport-Security received over plain HTTP; this response does not establish an HSTS policy.", "Send HSTS over HTTPS. This inspection does not determine cached or preloaded browser policies.")] : [];
   }
 
+  if (!headerValues.length) {
+    return [finding("warning", "MISSING_HSTS", "Missing HSTS", "The HTTPS response did not include Strict-Transport-Security.", "Add HSTS after confirming the site is ready to require HTTPS.")];
+  }
+
+  const findings = [];
+  if (headerValues.length > 1) {
+    findings.push(finding("warning", "MULTIPLE_HSTS_HEADERS", "Multiple HSTS header fields", "RFC 6797 specifies processing only the first Strict-Transport-Security field over HTTPS. These findings analyze that first field, not a later or combined policy.", "Emit one unambiguous HSTS header and verify browser behavior; this inspection does not determine cached or preloaded policies."));
+  }
+
+  const policy = parseHstsPolicy(headerValues[0]);
+  if (!policy) {
+    findings.push(finding("warning", "HSTS_INVALID_POLICY", "Invalid or uninterpretable HSTS policy", "The first Strict-Transport-Security field is malformed, lacks a valid max-age, repeats a directive, or exceeds bounded parsing limits. The observed header does not establish a valid HSTS policy.", "Send one well-formed HSTS policy with a single non-negative integer max-age and optional includeSubDomains without a value."));
+    return findings;
+  }
+
+  if (policy.maxAge === "0") {
+    findings.push(finding("warning", "HSTS_DISABLED", "HSTS policy disabled", "The first Strict-Transport-Security field has max-age=0, instructing browsers to remove the cached HSTS policy for this host. includeSubDomains does not make this zero-age policy protective; inherited or preloaded policies are not assessed.", "If disabling HSTS is unintended, send a positive max-age over HTTPS after confirming HTTPS readiness."));
+    return findings;
+  }
+
+  // Compare decimal strings exactly, without unsafe-integer rounding or overflow.
+  if (policy.maxAge.length < 8 || (policy.maxAge.length === 8 && policy.maxAge < "15552000")) {
+    findings.push(finding("warning", "HSTS_MAX_AGE_LOW", "HSTS max-age is low", "The first Strict-Transport-Security field has a valid positive max-age lower than six months (15,552,000 seconds).", "Use a longer max-age once HTTPS is stable."));
+  }
+  if (!policy.includeSubDomains) {
+    findings.push(finding("warning", "HSTS_MISSING_INCLUDE_SUBDOMAINS", "HSTS does not include subdomains", "The first Strict-Transport-Security field has a valid positive max-age without optional includeSubDomains. This is a hardening recommendation, not an invalid policy.", "Consider includeSubDomains if all subdomains support HTTPS."));
+  }
+  return findings;
+}
+
+function parseHstsPolicy(value) {
+  if (value.length > 8192) return null;
+  const directives = new Map();
+  // Anchored, bounded directive grammar; quoted values may contain separators.
+  const directive = /[\t ]*([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:[\t ]*=[\t ]*([!#$%&'*+.^_`|~0-9A-Za-z-]+|"(?:[\t\x20-\x21\x23-\x5b\x5d-\x7e]|\\[\t\x20-\x7e])*"))?[\t ]*(?:;|$)/y;
+  let offset = 0;
+  let count = 0;
+  while (offset < value.length) {
+    if (++count > 64) return null;
+    // Empty directive slots are permitted by the STS grammar.
+    const empty = /^[\t ]*(?:;|$)/.exec(value.slice(offset));
+    if (empty) {
+      offset += empty[0].length;
+      if (!empty[0].length) break;
+      continue;
+    }
+    directive.lastIndex = offset;
+    const match = directive.exec(value);
+    if (!match) return null;
+    const name = match[1].toLowerCase();
+    if (directives.has(name)) return null;
+    let parameter = match[2];
+    if (parameter?.startsWith('"')) parameter = parameter.slice(1, -1).replace(/\\(.)/g, "$1");
+    directives.set(name, parameter);
+    offset = directive.lastIndex;
+  }
+  const maxAge = directives.get("max-age");
+  if (!maxAge || !/^[0-9]+$/.test(maxAge)) return null;
+  if (directives.has("includesubdomains") && directives.get("includesubdomains") !== undefined) return null;
+  return { maxAge: maxAge.replace(/^0+(?=\d)/, ""), includeSubDomains: directives.has("includesubdomains") };
+}
+
+function analyzeCors(headers) {
+  const origins = getHeaderValues(headers, "access-control-allow-origin");
+  const credentials = getHeaderValues(headers, "access-control-allow-credentials");
+  const trimOws = (value) => value.replace(/^[\t ]+|[\t ]+$/g, "");
+  const allowOrigin = trimOws(origins[0] || "");
+  const allowCredentials = trimOws(credentials[0] || "");
+  if (origins.length > 1 || credentials.length > 1 ||
+      (origins.length && !isCorsOrigin(allowOrigin)) ||
+      (credentials.length && allowCredentials !== "true")) {
+    return [finding("warning", "CORS_INVALID_CONFIGURATION", "Malformed or ambiguous CORS headers", "The observed CORS fields are duplicated or contain invalid values. This inspection does not infer an effective browser CORS policy or demonstrate credential exposure; the credential-support token must be exactly true.", "Emit a single valid allowed-origin field and omit credential support unless needed. Review the endpoint's intended CORS policy; CORS is not authentication, authorization, or CSRF protection.")];
+  }
+
+  if (allowOrigin === "*" && allowCredentials === "true") {
+    return [finding("warning", "CORS_WILDCARD_WITH_CREDENTIALS", "Incompatible credentialed CORS configuration", "The response combines a wildcard allowed origin with credential support. Browsers block credentialed JavaScript access to this response; this does not by itself demonstrate credential exposure.", "Use an explicitly permitted origin for credentialed cross-origin access, or omit credential support if it is unnecessary. Review the endpoint's intended CORS policy.")];
+  }
+
+  // A wildcard alone or an intentionally trusted explicit origin can be valid.
+  // Static inspection cannot prove arbitrary-origin reflection. CORS governs
+  // browser access, not non-browser clients, authentication, authorization or CSRF.
   return [];
+}
+
+function isCorsOrigin(value) {
+  if (value === "*" || value === "null") return true;
+  if (value.length > 8192) return false;
+  try {
+    const url = new URL(value);
+    return url.origin !== "null" && url.origin === value;
+  } catch {
+    return false;
+  }
 }
 
 function finding(severity, code, title, detail, recommendation, metadata = null) {
@@ -1091,59 +1241,35 @@ function withCheckCacheMetadata(response, { cached, storedAt, now }) {
 }
 
 function enforceRateLimit(clientIp, targetHost, cost, now) {
-  pruneBucket(globalRateBucket, now, RATE_WINDOW_HOUR_MS);
+  pruneHistory(globalRateBucket, now, RATE_WINDOW_HOUR_MS);
   const globalFiveMinuteTotal = globalRateBucket
     .filter((entry) => now - entry.time < RATE_WINDOW_FIVE_MINUTES_MS)
     .reduce((total, entry) => total + entry.cost, 0);
 
-  if (globalFiveMinuteTotal + cost > GLOBAL_RATE_LIMIT_FIVE_MINUTES) {
+  if (globalFiveMinuteTotal + cost > GLOBAL_RATE_LIMIT_FIVE_MINUTES || globalRateBucket.length >= RETENTION_LIMITS.httpGlobalHistory) {
     throw rateLimitedError();
   }
 
+  // Preflight both identity capacities before charging either history.
+  rateBuckets.prepare(clientIp, now, rateLimitedError);
+  targetRateBuckets.prepare(targetHost, now, rateLimitedError);
   enforceBucket(rateBuckets, clientIp, cost, now, RATE_LIMIT_FIVE_MINUTES, RATE_LIMIT_HOUR);
   enforceBucket(targetRateBuckets, targetHost, cost, now, TARGET_RATE_LIMIT_FIVE_MINUTES, RATE_LIMIT_HOUR);
   globalRateBucket.push({ time: now, cost });
 }
 
 function enforceBucket(buckets, key, cost, now, fiveMinuteLimit, hourLimit) {
-  const bucket = buckets.get(key) || [];
-  const fresh = bucket.filter((entry) => now - entry.time < RATE_WINDOW_HOUR_MS);
+  const fresh = buckets.prepare(key, now, rateLimitedError);
   const hourTotal = fresh.reduce((total, entry) => total + entry.cost, 0);
   const fiveMinuteTotal = fresh
     .filter((entry) => now - entry.time < RATE_WINDOW_FIVE_MINUTES_MS)
     .reduce((total, entry) => total + entry.cost, 0);
 
   if (fiveMinuteTotal + cost > fiveMinuteLimit || hourTotal + cost > hourLimit) {
-    buckets.set(key, fresh);
     throw rateLimitedError();
   }
 
-  fresh.push({ time: now, cost });
-  buckets.set(key, fresh);
-}
-
-function pruneBucket(bucket, now, maxAgeMs) {
-  for (let index = bucket.length - 1; index >= 0; index -= 1) {
-    if (now - bucket[index].time >= maxAgeMs) {
-      bucket.splice(index, 1);
-    }
-  }
-}
-
-function acquireActiveCheck(cost) {
-  if (cost === 0) {
-    return () => {};
-  }
-
-  if (activeChecks + cost > ACTIVE_CHECK_LIMIT) {
-    throw rateLimitedError();
-  }
-
-  activeChecks += cost;
-
-  return () => {
-    activeChecks = Math.max(0, activeChecks - cost);
-  };
+  buckets.commit(key, fresh, cost, now, rateLimitedError);
 }
 
 function rateLimitedError() {
@@ -1303,7 +1429,7 @@ const HEADER_DEFINITIONS = Object.freeze([
   headerDefinition("etag", "Content metadata", "Entity tag used for cache validation."),
   headerDefinition("last-modified", "Content metadata", "Last modification timestamp reported by the server."),
   headerDefinition("accept-ranges", "Content metadata", "Whether the server supports range requests."),
-  headerDefinition("strict-transport-security", "Security headers", "Asks browsers to use HTTPS for future requests."),
+  headerDefinition("strict-transport-security", "Security headers", "Advertises an HSTS policy over HTTPS; valid max-age=0 removes the cached policy for this host."),
   headerDefinition("content-security-policy", "Security headers", "Controls which resources the browser may load or execute."),
   headerDefinition("x-content-type-options", "Security headers", "nosniff prevents some MIME sniffing behavior."),
   headerDefinition("x-frame-options", "Security headers", "Legacy clickjacking protection for framing."),
@@ -1318,8 +1444,8 @@ const HEADER_DEFINITIONS = Object.freeze([
   headerDefinition("expires", "Cache", "Legacy expiration timestamp."),
   headerDefinition("age", "Cache", "Seconds a cached response has been stored by a proxy."),
   headerDefinition("set-cookie", "Cookies", "Cookie assignment from the server."),
-  headerDefinition("access-control-allow-origin", "CORS", "Origins allowed to read this response through browsers."),
-  headerDefinition("access-control-allow-credentials", "CORS", "Whether browsers may expose credentialed responses."),
+  headerDefinition("access-control-allow-origin", "CORS", "Advertises origins for browser CORS access; other CORS checks also apply."),
+  headerDefinition("access-control-allow-credentials", "CORS", "Advertises credential support for browser CORS access; a compatible allowed origin is also required."),
   headerDefinition("access-control-allow-methods", "CORS", "Methods allowed for cross-origin requests."),
   headerDefinition("access-control-allow-headers", "CORS", "Request headers allowed for cross-origin requests."),
   headerDefinition("x-request-id", "Diagnostics", "Request identifier useful for logs and support."),

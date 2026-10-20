@@ -29,3 +29,9 @@ pre {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Keep a consistent keyboard indicator, including controls with outline-none. */
+:is(button, input, select, textarea, summary, a):focus-visible {
+  outline: 2px solid var(--color-emerald-400);
+  outline-offset: 3px;
+}

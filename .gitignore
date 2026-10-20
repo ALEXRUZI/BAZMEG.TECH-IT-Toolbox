@@ -25,6 +25,8 @@ build/
 # generated from vite.config.ts by TypeScript build
 frontend/vite.config.js
 frontend/vite.config.d.ts
+frontend/scripts/sshForgeBundleEvidence.js
+frontend/scripts/sshForgeBundleEvidence.d.ts
 
 # logs
 *.log
@@ -40,3 +42,10 @@ Thumbs.db
 
 # local-only infrastructure notes/configs
 infrastructure/
+
+# frontend test artifacts
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/coverage/
+frontend/e2e-diagnostics/

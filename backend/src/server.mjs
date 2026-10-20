@@ -1,8 +1,10 @@
 import Fastify from "fastify";
 import net from "node:net";
-import { checkDns, DnsCheckError } from "./tools/dns-check.mjs";
-import { checkHttpHeader, HttpHeaderCheckError } from "./tools/http-header-check.mjs";
-import { checkTlsCertificate, TlsCheckError } from "./tools/tls-check.mjs";
+import { registerDnsRoute } from "./dns-route.mjs";
+import { registerHttpRoute } from "./http-route.mjs";
+import { registerTlsRoute } from "./tls-route.mjs";
+import { registerRegistrationRoute } from "./registration-route.mjs";
+import { releaseInfo } from "./release-info.mjs";
 
 const app = Fastify({
   logger: true,
@@ -10,6 +12,7 @@ const app = Fastify({
 });
 
 const BACKEND_SECRET = process.env.BACKEND_SECRET;
+const release = releaseInfo();
 
 app.addHook("onRequest", async (request, reply) => {
   if (request.url === "/healthz") {
@@ -39,95 +42,18 @@ app.get("/api/ping", async (request) => {
   };
 });
 
-app.post("/api/tools/tls-check", async (request, reply) => {
-  try {
-    return await checkTlsCertificate(request.body || {});
-  } catch (error) {
-    const safeError = error instanceof TlsCheckError
-      ? error
-      : new TlsCheckError("TLS_CONNECTION_FAILED", "TLS connection failed.");
-
-    const statusCode = [
-      "INVALID_HOST",
-      "INVALID_PORT",
-      "DNS_LOOKUP_FAILED",
-      "BLOCKED_TARGET",
-    ].includes(safeError.code) ? 400 : 502;
-
-    return reply.code(statusCode).send({
-      ok: false,
-      error: {
-        code: safeError.code,
-        message: safeError.safeMessage,
-      },
-    });
-  }
+// Protected by the same authentication hook as every other /api endpoint.
+app.get("/api/release", async (request, reply) => {
+  reply.header("Cache-Control", "no-store");
+  return { ok: true, ...release };
 });
 
-app.post("/api/tools/dns-check", async (request, reply) => {
-  try {
-    return await checkDns(request.body || {}, {
-      clientIp: getClientIp(request),
-    });
-  } catch (error) {
-    const safeError = error instanceof DnsCheckError
-      ? error
-      : new DnsCheckError("DNS_CHECK_FAILED", "DNS check failed.");
+registerTlsRoute(app, getClientIp);
 
-    const statusCode = safeError.code === "RATE_LIMITED"
-      ? 429
-      : [
-        "INVALID_MODE",
-        "INVALID_RECORD_TYPE",
-        "INVALID_QUERY",
-        "INVALID_RESOLVER",
-        "CUSTOM_RESOLVER_NOT_ALLOWED",
-        "BULK_INPUT_NOT_ALLOWED",
-      ].includes(safeError.code) ? 400 : 502;
+registerDnsRoute(app, getClientIp);
 
-    return reply.code(statusCode).send({
-      ok: false,
-      error: {
-        code: safeError.code,
-        message: safeError.safeMessage,
-      },
-    });
-  }
-});
-
-app.post("/api/tools/http-header-check", async (request, reply) => {
-  try {
-    return await checkHttpHeader(request.body || {}, {
-      clientIp: getClientIp(request),
-      logger: request.log,
-    });
-  } catch (error) {
-    const safeError = error instanceof HttpHeaderCheckError
-      ? error
-      : new HttpHeaderCheckError("HTTP_HEADER_CHECK_FAILED", "HTTP header check failed.");
-
-    const statusCode = safeError.code === "RATE_LIMITED"
-      ? 429
-      : [
-        "INVALID_TARGET",
-        "UNSUPPORTED_PROTOCOL",
-        "IP_NOT_ALLOWED",
-        "LOCAL_HOSTNAME_NOT_ALLOWED",
-        "INVALID_PORT",
-        "DNS_LOOKUP_FAILED",
-        "BLOCKED_TARGET",
-        "BLOCKED_REDIRECT",
-      ].includes(safeError.code) ? 400 : 502;
-
-    return reply.code(statusCode).send({
-      ok: false,
-      error: {
-        code: safeError.code,
-        message: safeError.safeMessage,
-      },
-    });
-  }
-});
+registerHttpRoute(app, getClientIp);
+registerRegistrationRoute(app, getClientIp);
 
 function getClientIp(request) {
   const trustToolboxProxyHeader = process.env.TRUST_TOOLBOX_PROXY_HEADERS === "true";
@@ -149,5 +75,10 @@ function netSafeIp(value) {
 }
 
 const port = Number(process.env.PORT || 3001);
+// Explicit opt-in for an isolated container network; local default stays loopback.
+const bindAddress = process.env.TOOLBOX_BIND_ADDRESS || "127.0.0.1";
+if (!["127.0.0.1", "0.0.0.0"].includes(bindAddress)) {
+  throw new Error("Invalid TOOLBOX_BIND_ADDRESS");
+}
 
-app.listen({ host: "127.0.0.1", port });
+app.listen({ host: bindAddress, port });

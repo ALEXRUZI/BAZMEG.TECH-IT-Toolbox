@@ -1,11 +1,11 @@
-import dns from "node:dns/promises";
 import { execFileSync } from "node:child_process";
 import { X509Certificate } from "node:crypto";
 import net from "node:net";
 import tls from "node:tls";
+import { createTlsNetwork, TlsCheckError } from "./tls-network.mjs";
+import { getCertificateExpiration, inspectCertificateEvidence } from "./tls-certificate.mjs";
+export { TlsCheckError } from "./tls-network.mjs";
 
-const CONNECT_TIMEOUT_MS = 7000;
-const DNS_FAMILY_TIMEOUT_MS = 3000;
 const SUPPORTED_TLS_PORTS = new Set([
   443,
   4443,
@@ -22,23 +22,25 @@ const CAB_FORUM_POLICY_TYPES = Object.freeze([
   ["2.23.140.1.2.3", "IV", "Certificate Policies contains CA/B Forum Individual Validated policy OID 2.23.140.1.2.3."],
 ]);
 
-export class TlsCheckError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.name = "TlsCheckError";
-    this.code = code;
-    this.safeMessage = message;
-  }
+// Internal factory for offline tests. Public request bodies cannot inject network operations.
+export function createTlsChecker(dependencies = {}) {
+  const run = createTlsNetwork({ ...dependencies, isBlockedIp });
+  return async function check({ host, port }, options = {}) {
+    const normalizedHost = normalizeHost(host);
+    const normalizedPort = normalizePort(port);
+    return run(normalizedHost, normalizedPort, options, (tlsResult, resolvedAddresses) => {
+      return formatTlsResult(normalizedHost, normalizedPort, tlsResult, resolvedAddresses, (dependencies.wallNow || Date.now)());
+    });
+  };
 }
 
-export async function checkTlsCertificate({ host, port }) {
-  const normalizedHost = normalizeHost(host);
-  const normalizedPort = normalizePort(port);
-  const resolvedAddresses = await resolvePublicAddresses(normalizedHost);
-  const tlsResult = await connectTls(normalizedHost, normalizedPort, resolvedAddresses);
-  const certificate = formatCertificate(tlsResult.peerCertificate, "server");
+export const checkTlsCertificate = createTlsChecker();
+
+export function formatTlsResult(normalizedHost, normalizedPort, tlsResult, resolvedAddresses, now = Date.now()) {
+  const chain = buildCertificateChain(tlsResult.peerCertificate, now);
+  const certificate = chain[0];
+  if (!certificate) throw new TlsCheckError("CERTIFICATE_UNAVAILABLE", "Certificate information was unavailable.");
   const certificateValidationType = inferCertificateValidationType(tlsResult.peerCertificate);
-  const chain = buildCertificateChain(tlsResult.peerCertificate);
   const issuerChainMetadata = buildIssuerChainMetadata(chain);
   const hostnameVerificationError = tls.checkServerIdentity(normalizedHost, tlsResult.peerCertificate);
   const hostnameMatches = !hostnameVerificationError;
@@ -48,8 +50,8 @@ export async function checkTlsCertificate({ host, port }) {
     resolves: true,
     trusted: tlsResult.authorized,
     hostnameMatches,
-    notExpired: certificate.daysRemaining !== null && certificate.daysRemaining >= 0,
-    chainProvided: chain.length > 1,
+    notExpired: certificate.expirationState === "unknown" ? null : certificate.expirationState !== "expired",
+    chainProvided: null,
   };
   const checks = buildChecks({
     host: normalizedHost,
@@ -133,132 +135,7 @@ function normalizePort(port) {
   return port;
 }
 
-async function resolvePublicAddresses(host) {
-  const addresses = await resolveAddresses(host);
-  const publicAddresses = addresses.filter((address) => !isBlockedIp(address));
-
-  if (publicAddresses.length === 0) {
-    throw new TlsCheckError("BLOCKED_TARGET", "The hostname resolves only to blocked addresses.");
-  }
-
-  return publicAddresses;
-}
-
-async function resolveAddresses(host) {
-  const lookups = await Promise.all([
-    resolveDnsFamily(dns.resolve4(host)),
-    resolveDnsFamily(dns.resolve6(host)),
-  ]);
-
-  const addresses = lookups.flat();
-
-  if (addresses.length === 0) {
-    try {
-      const lookupAddresses = await dns.lookup(host, { all: true });
-      addresses.push(...lookupAddresses.map((record) => record.address));
-    } catch {
-      throw new TlsCheckError("DNS_LOOKUP_FAILED", "DNS lookup failed for this hostname.");
-    }
-  }
-
-  if (addresses.length === 0) {
-    throw new TlsCheckError("DNS_LOOKUP_FAILED", "DNS lookup failed for this hostname.");
-  }
-
-  return [...new Set(addresses)];
-}
-
-function resolveDnsFamily(lookup) {
-  return Promise.race([
-    lookup.catch(() => []),
-    new Promise((resolve) => {
-      setTimeout(() => resolve([]), DNS_FAMILY_TIMEOUT_MS);
-    }),
-  ]);
-}
-
-async function connectTls(servername, port, addresses) {
-  const activeSockets = new Set();
-  const timeout = setTimeout(() => {
-    for (const socket of activeSockets) {
-      socket.destroy(new Error("TLS connection timed out."));
-    }
-  }, CONNECT_TIMEOUT_MS);
-
-  try {
-    return await Promise.any(addresses.map((address) => {
-      return connectTlsAddress(servername, port, address, activeSockets);
-    }));
-  } catch {
-    throw new TlsCheckError("TLS_CONNECTION_FAILED", "TLS connection failed.");
-  } finally {
-    clearTimeout(timeout);
-
-    for (const socket of activeSockets) {
-      socket.destroy();
-    }
-  }
-}
-
-function connectTlsAddress(servername, port, address, activeSockets) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let timeoutId;
-    const fail = () => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timeoutId);
-        reject(new TlsCheckError("TLS_CONNECTION_FAILED", "TLS connection failed."));
-      }
-    };
-    const socket = tls.connect({
-      host: address,
-      port,
-      servername,
-      rejectUnauthorized: false,
-      timeout: CONNECT_TIMEOUT_MS,
-    });
-
-    timeoutId = setTimeout(() => {
-      socket.destroy();
-      fail();
-    }, CONNECT_TIMEOUT_MS);
-
-    activeSockets.add(socket);
-    socket.once("close", () => {
-      activeSockets.delete(socket);
-      fail();
-    });
-
-    socket.once("secureConnect", () => {
-      const cipher = socket.getCipher();
-      const peerCertificate = socket.getPeerCertificate(true);
-
-      settled = true;
-      clearTimeout(timeoutId);
-      socket.end();
-
-      resolve({
-        authorized: socket.authorized,
-        authorizationError: socket.authorizationError || null,
-        protocol: socket.getProtocol(),
-        cipher: cipher?.standardName || cipher?.name || null,
-        peerCertificate,
-      });
-    });
-
-    socket.once("timeout", () => {
-      socket.destroy(new Error("TLS connection timed out."));
-      fail();
-    });
-
-    socket.once("error", () => {
-      fail();
-    });
-  });
-}
-
-function buildCertificateChain(peerCertificate) {
+function buildCertificateChain(peerCertificate, now) {
   const chain = [];
   const seenFingerprints = new Set();
   let currentCertificate = peerCertificate;
@@ -271,14 +148,14 @@ function buildCertificateChain(peerCertificate) {
     }
 
     seenFingerprints.add(fingerprint);
-    chain.push(formatCertificate(currentCertificate, getCertificateType(currentCertificate, depth)));
+    chain.push(formatCertificate(currentCertificate, depth === 0 ? "server" : "chain", now));
 
     const issuerCertificate = currentCertificate.issuerCertificate;
 
     if (
       !issuerCertificate ||
       issuerCertificate === currentCertificate ||
-      issuerCertificate.fingerprint256 === currentCertificate.fingerprint256
+      (issuerCertificate.fingerprint256 && issuerCertificate.fingerprint256 === currentCertificate.fingerprint256)
     ) {
       break;
     }
@@ -296,7 +173,14 @@ export function buildIssuerChain(chain) {
 
   return chain.map((certificate, index) => ({
     level: getIssuerChainLevel(certificate, index),
-    source: "peer-chain",
+    source: index === 0 ? "peer" : "inferred",
+    ca: certificate.ca ?? null,
+    selfIssued: certificate.selfIssued ?? null,
+    selfSigned: certificate.selfSigned ?? null,
+    signatureAlgorithm: certificate.signatureAlgorithm || null,
+    publicKeyAlgorithm: certificate.publicKeyAlgorithm || null,
+    modulusLength: certificate.modulusLength || null,
+    namedCurve: certificate.namedCurve || null,
     subject: formatDistinguishedName(certificate.subject),
     issuer: formatDistinguishedName(certificate.issuer),
     validFrom: certificate.validFrom || null,
@@ -307,36 +191,21 @@ export function buildIssuerChain(chain) {
 
 export function buildIssuerChainMetadata(chain) {
   const issuerChain = buildIssuerChain(chain);
-  const issuerChainComplete = issuerChain.some((entry) => entry.level === "root");
-
   return {
-    serverProvidedCertificateCount: Array.isArray(chain) ? chain.length : 0,
+    serverProvidedCertificateCount: null,
     issuerChain,
-    issuerChainComplete,
-    issuerChainNote: issuerChainComplete
-      ? "Issuer chain includes a self-signed/root certificate from the peer certificate chain."
-      : "Full issuer chain was not available from the server response. Root certificates are commonly omitted from TLS handshakes.",
+    issuerChainComplete: null,
+    issuerChainNote: "Exact certificates transmitted by the server cannot be determined from this inspection. Issuer entries are available during runtime chain construction; their wire or local-store origin and chain completeness are unverified. A self-signed CA is not proof of a trusted root. TLS authorization is reported separately.",
   };
 }
 
 function getIssuerChainLevel(certificate, index) {
-  if (isSelfIssuedCertificate(certificate)) {
-    return "root";
-  }
-
   if (index === 0 || certificate?.type === "server") {
     return "leaf";
   }
-
-  return "intermediate";
-}
-
-function isSelfIssuedCertificate(certificate) {
-  return Boolean(
-    certificate?.subject &&
-    certificate?.issuer &&
-    JSON.stringify(certificate.subject) === JSON.stringify(certificate.issuer)
-  );
+  if (certificate?.ca === true && certificate?.selfSigned === true) return "self-signed-ca";
+  if (certificate?.selfIssued === true) return "self-issued";
+  return certificate?.ca === true ? "intermediate" : "unknown";
 }
 
 function formatDistinguishedName(value) {
@@ -356,42 +225,23 @@ function formatDistinguishedName(value) {
   return entries.length > 0 ? entries.join(", ") : "Unavailable";
 }
 
-function getCertificateType(certificate, depth) {
-  if (depth === 0) {
-    return "server";
-  }
-
-  if (
-    certificate.ca === true &&
-    certificate.subject &&
-    certificate.issuer &&
-    JSON.stringify(certificate.subject) === JSON.stringify(certificate.issuer)
-  ) {
-    return "root";
-  }
-
-  return "intermediate";
-}
-
-function formatCertificate(certificate, type = "chain") {
+function formatCertificate(certificate, type, now) {
   if (!certificate || Object.keys(certificate).length === 0) {
     throw new TlsCheckError("CERTIFICATE_UNAVAILABLE", "Certificate information was unavailable.");
   }
 
+  const evidence = inspectCertificateEvidence(certificate);
   return {
-    type,
+    type: type === "server" ? type : evidence.ca && evidence.selfSigned ? "self-signed-ca" : evidence.selfIssued ? "self-issued" : evidence.ca ? "intermediate" : "chain",
+    ...evidence,
     subject: certificate.subject || {},
     issuer: certificate.issuer || {},
     validFrom: certificate.valid_from || null,
     validTo: certificate.valid_to || null,
-    daysRemaining: getDaysRemaining(certificate.valid_to),
+    ...getCertificateExpiration(certificate.valid_to, now),
     serialNumber: certificate.serialNumber || null,
     fingerprint256: certificate.fingerprint256 || null,
     subjectAltName: certificate.subjectaltname || null,
-    signatureAlgorithm: certificate.signatureAlgorithm || certificate.sigalg || null,
-    publicKeyAlgorithm: certificate.asymmetricKeyType || certificate.publicKeyAlgorithm || null,
-    modulusLength: certificate.modulusLength || null,
-    bits: certificate.bits || null,
   };
 }
 
@@ -896,8 +746,8 @@ function buildChecks({
     },
     {
       id: "certificate_expiry",
-      status: getExpiryStatus(certificate.daysRemaining),
-      message: getExpiryMessage(certificate.daysRemaining),
+      status: certificate.expirationState === "expired" ? "fail" : certificate.expirationState === "valid" ? "pass" : "warn",
+      message: getExpiryMessage(certificate),
     },
     {
       id: "hostname_match",
@@ -908,7 +758,7 @@ function buildChecks({
     },
     {
       id: "certificate_chain",
-      status: chain.length > 1 ? "pass" : "warn",
+      status: "warn",
       message: formatCertificateChainSummaryMessage({
         issuerChainEntriesShown,
         serverProvidedCertificateCount,
@@ -931,23 +781,16 @@ export function formatCertificateChainSummaryMessage({
   issuerChainEntriesShown,
   serverProvidedCertificateCount,
 }) {
-  return `Issuer chain entries shown: ${issuerChainEntriesShown}. Server-provided certificates: ${serverProvidedCertificateCount}.`;
+  return `Issuer chain entries shown: ${issuerChainEntriesShown}. Server-provided certificates: ${serverProvidedCertificateCount ?? "unknown"}. Chain completeness is unverified.`;
 }
 
-function getExpiryStatus(daysRemaining) {
-  if (daysRemaining === null || daysRemaining < 0) {
-    return "fail";
-  }
-
-  return daysRemaining <= 30 ? "warn" : "pass";
-}
-
-function getExpiryMessage(daysRemaining) {
-  if (daysRemaining === null) {
+function getExpiryMessage({ expirationState, daysRemaining }) {
+  if (expirationState === "unknown") {
     return "The certificate expiration date could not be read.";
   }
 
-  if (daysRemaining < 0) {
+  if (expirationState === "expired") {
+    if (daysRemaining === 0) return "The certificate has expired (less than one day ago or at the expiration instant).";
     return `The certificate expired ${Math.abs(daysRemaining)} day${Math.abs(daysRemaining) === 1 ? "" : "s"} ago.`;
   }
 
@@ -956,29 +799,15 @@ function getExpiryMessage(daysRemaining) {
 
 function getCertificateWarnings(chain) {
   return chain.flatMap((certificate, index) => {
-    const signatureAlgorithm = certificate.signatureAlgorithm?.toLowerCase() || "";
-
-    if (!signatureAlgorithm.includes("md5") && !signatureAlgorithm.includes("sha1")) {
-      return [];
-    }
-
     const label = index === 0 ? "server certificate" : `chain certificate ${index + 1}`;
-    return [`The ${label} uses a weak signature algorithm: ${certificate.signatureAlgorithm}.`];
+    const warnings = [];
+    if (certificate.signatureStrength === "weak") warnings.push(`The ${label} uses a weak signature algorithm: ${certificate.signatureAlgorithm}.`);
+    if (certificate.signatureStrength === "unknown") warnings.push(`The ${label} signature strength is unknown: ${certificate.signatureAlgorithm || "algorithm unavailable"}.`);
+    if (certificate.expirationState === "expired") warnings.push(`The ${label} has expired.`);
+    if (certificate.expirationState === "unknown") warnings.push(`The ${label} expiration date is unknown.`);
+    if (certificate.expirationState === "expiring-soon") warnings.push(`The ${label} expires within 30 days.`);
+    return warnings;
   });
-}
-
-function getDaysRemaining(validTo) {
-  if (!validTo) {
-    return null;
-  }
-
-  const expiresAt = new Date(validTo).getTime();
-
-  if (!Number.isFinite(expiresAt)) {
-    return null;
-  }
-
-  return Math.ceil((expiresAt - Date.now()) / 86400000);
 }
 
 function isBlockedIp(address) {

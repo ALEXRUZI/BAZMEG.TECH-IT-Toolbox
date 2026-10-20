@@ -98,6 +98,180 @@ test("revalidates redirect target and blocks unsafe redirect locations", async (
   }
 });
 
+test("redirects accept each supported destination port using the destination scheme", async (t) => {
+  const destinations = [
+    ...HTTP_PORTS.map((port) => ({ location: `http://next.example.com:${port}/done`, mode: "https" })),
+    ...HTTPS_PORTS.map((port) => ({ location: `https://next.example.com:${port}/done`, mode: "http" })),
+  ];
+
+  for (const { location, mode } of destinations) {
+    await t.test(location, async () => {
+      resetHttpHeaderCheckState();
+      const resolvedHosts = [];
+      const attempts = [];
+      const result = await checkHttpHeader({ target: "example.com", protocolMode: mode }, {
+        resolveAddresses: async (host) => {
+          resolvedHosts.push(host);
+          return host === "example.com" ? ["93.184.216.34"] : ["1.1.1.1"];
+        },
+        requestUrl: async (url, options) => {
+          attempts.push({ url: url.href, addresses: options.addresses });
+          return attempts.length === 1 ? redirectResponse(location) : okResponse();
+        },
+      });
+
+      assert.equal(result.ok, true);
+      assert.equal(result.checks[0].blockedRedirect, null);
+      assert.equal(result.checks[0].redirectsFollowed, 1);
+      assert.deepEqual(resolvedHosts, ["example.com", "next.example.com"]);
+      assert.deepEqual(attempts, [
+        { url: `${mode}://example.com/`, addresses: ["93.184.216.34"] },
+        { url: new URL(location).href, addresses: ["1.1.1.1"] },
+      ]);
+      assert.equal(result.checks[0].status, 200);
+    });
+  }
+});
+
+test("same-host relative redirects and IDN hostnames retain normalization", async () => {
+  resetHttpHeaderCheckState();
+  const resolvedHosts = [];
+  const attempts = [];
+  const result = await checkHttpHeader({ target: "HTTPS://BÜCHER.DE./start", protocolMode: "https", port: 8443 }, {
+    resolveAddresses: async (host) => {
+      resolvedHosts.push(host);
+      return ["93.184.216.34"];
+    },
+    requestUrl: async (url) => {
+      attempts.push(url.href);
+      if (attempts.length === 1) return redirectResponse("/next?q=1");
+      if (attempts.length === 2) return redirectResponse("https://BÜCHER.DE.:443/done");
+      return okResponse();
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.checks[0].redirectsFollowed, 2);
+  assert.deepEqual(resolvedHosts, ["xn--bcher-kva.de", "xn--bcher-kva.de", "xn--bcher-kva.de"]);
+  assert.deepEqual(attempts, [
+    "https://xn--bcher-kva.de:8443/",
+    "https://xn--bcher-kva.de:8443/next?q=1",
+    "https://xn--bcher-kva.de./done",
+  ]);
+});
+
+test("prohibited redirects are blocked before DNS and transport on every permitted hop", async (t) => {
+  const destinations = [
+    ["http://blocked.example.com:22/", /port 22.*HTTP/],
+    ["https://blocked.example.com:22/", /port 22.*HTTPS/],
+    ["http://blocked.example.com:443/", /port 443.*HTTP/],
+    ["https://blocked.example.com:8080/", /port 8080.*HTTPS/],
+    ["http://blocked.example.com:65535/", /port 65535.*HTTP/],
+    ["https://blocked.example.com:65535/", /port 65535.*HTTPS/],
+    ["http://user@blocked.example.com/", /credentials/],
+    ["https://user:password@blocked.example.com/", /credentials/],
+    ["https://:password@blocked.example.com/", /credentials/],
+    ["https://%75ser@blocked.example.com/", /credentials/],
+    ["ftp://blocked.example.com/", /only HTTP and HTTPS/],
+    ["file://blocked.example.com/path", /only HTTP and HTTPS/],
+    ["http://1.1.1.1/", /blocked/],
+    ["http://127.0.0.1/", /blocked/],
+    ["http://[::1]/", /blocked/],
+    ["https://[::ffff:127.0.0.1]/", /blocked/],
+    ["http://localhost/", /blocked/],
+    ["https://server.internal/", /blocked/],
+    ["http://router.local/", /blocked/],
+    ["http://nas/", /blocked/],
+    ["http://blocked.example.com:65536/", /blocked/],
+  ];
+
+  for (const [location, reason] of destinations) {
+    for (const allowedHops of [0, 1]) {
+      await t.test(`${location} after ${allowedHops} allowed redirects`, async () => {
+        resetHttpHeaderCheckState();
+        const resolvedHosts = [];
+        const attempts = [];
+        const result = await checkHttpHeader({ target: "example.com", protocolMode: "http" }, {
+          resolveAddresses: async (host) => {
+            resolvedHosts.push(host);
+            return ["93.184.216.34"];
+          },
+          requestUrl: async (url) => {
+            attempts.push(url.href);
+            return redirectResponse(allowedHops && attempts.length === 1 ? "https://next.example.com/" : location);
+          },
+        });
+        const check = result.checks[0];
+        const from = allowedHops ? "https://next.example.com" : "http://example.com";
+
+        assert.equal(result.ok, false);
+        assert.equal(check.ok, false);
+        assert.equal(check.findings[0].code, "BLOCKED_REDIRECT");
+        assert.match(check.findings[0].detail, reason);
+        assert.equal(check.finalCheckedUrl, from);
+        assert.equal(check.status, 301);
+        assert.equal(check.redirectsFollowed, allowedHops);
+        assert.equal(check.chainDisplay, allowedHops
+          ? "http://example.com --> https://next.example.com --> X"
+          : "http://example.com --> X");
+        assert.deepEqual(check.blockedRedirect, { from, status: 301, location });
+        assert.deepEqual(check.redirects.at(-1), {
+          from, to: "X", status: 301, statusText: "Moved Permanently", location,
+        });
+        assert.deepEqual(resolvedHosts, allowedHops ? ["example.com", "next.example.com"] : ["example.com"]);
+        assert.deepEqual(attempts, allowedHops ? ["http://example.com/", "https://next.example.com/"] : ["http://example.com/"]);
+        assert.equal(check.headers.some((header) => header.name === "location" && header.value === location), true);
+      });
+    }
+  }
+});
+
+test("unsupported initial selected ports are rejected before DNS or transport", async () => {
+  for (const [protocolMode, port] of [["http", 22], ["https", 22], ["http", 443], ["https", 8080]]) {
+    resetHttpHeaderCheckState();
+    await assert.rejects(() => checkHttpHeader({ target: "example.com", protocolMode, port }, {
+      resolveAddresses: async () => assert.fail("Invalid initial port reached DNS"),
+      requestUrl: async () => assert.fail("Invalid initial port reached transport"),
+    }), { code: "INVALID_PORT" });
+  }
+});
+
+test("same-host redirect rechecks DNS and never connects to rebound or mixed blocked addresses", async (t) => {
+  for (const addresses of [["10.0.0.1"], ["93.184.216.34", "10.0.0.1"], ["::ffff:127.0.0.1"], ["2001:db8::1"]]) {
+    await t.test(addresses.join(", "), async (t) => {
+      resetHttpHeaderCheckState();
+      const resolvedHosts = [];
+      const connections = [];
+      t.mock.method(http, "request", (options, callback) => {
+        connections.push(options);
+        const request = new EventEmitter();
+        request.end = () => queueMicrotask(() => callback({
+          statusCode: 302,
+          statusMessage: "Found",
+          rawHeaders: ["Location", "/next"],
+          destroy() {},
+        }));
+        request.destroy = () => queueMicrotask(() => request.emit("close"));
+        return request;
+      });
+      const result = await checkHttpHeader({ target: "example.com", protocolMode: "http" }, {
+        resolveAddresses: async (host) => {
+          resolvedHosts.push(host);
+          return resolvedHosts.length === 1 ? ["93.184.216.34"] : addresses;
+        },
+      });
+
+      assert.equal(result.ok, false);
+      assert.equal(result.checks[0].findings[0].code, "BLOCKED_REDIRECT");
+      assert.deepEqual(resolvedHosts, ["example.com", "example.com"]);
+      assert.equal(connections.length, 1);
+      assert.equal(connections[0].host, "93.184.216.34");
+      assert.equal(connections[0].headers.Host, "example.com");
+      assert.equal(connections[0].port, 80);
+    });
+  }
+});
+
 test("revalidates redirect DNS results and blocks private redirect resolution", async () => {
   resetHttpHeaderCheckState();
   const result = await checkHttpHeader({ target: "example.com" }, {
@@ -326,6 +500,141 @@ test("header analysis reports contextual security, cookie, CORS, and legacy find
   assert.equal(codes.includes("MISSING_X_XSS_PROTECTION"), false);
 });
 
+async function inspectDiagnosticHeaders(headers, protocolMode = "https") {
+  resetHttpHeaderCheckState();
+  const result = await checkHttpHeader({ target: "example.com", protocolMode }, {
+    resolveAddresses: fakeResolver({ default: ["93.184.216.34"] }),
+    requestUrl: async () => ({ status: 200, statusText: "OK", headers }),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.checks[0].headers, headers.map(({ name, value }) => ({ name: name.toLowerCase(), value })));
+  return result.checks[0].findings;
+}
+
+test("CORS diagnostics use exact tokens and do not claim demonstrated exposure", async (t) => {
+  const origin = (value, name = "access-control-allow-origin") => ({ name, value });
+  const credentials = (value, name = "access-control-allow-credentials") => ({ name, value });
+  const cases = [
+    ["wildcard credentials", [origin("*"), credentials("true")], "CORS_WILDCARD_WITH_CREDENTIALS"],
+    ["header casing and OWS", [origin("\t * ", "Access-Control-Allow-Origin"), credentials(" true\t", "ACCESS-CONTROL-ALLOW-CREDENTIALS")], "CORS_WILDCARD_WITH_CREDENTIALS"],
+    ["wildcard alone", [origin("*")], null],
+    ["non-true credentials", [origin("*"), credentials("false")], "CORS_INVALID_CONFIGURATION"],
+    ["credentials case matters", [origin("*"), credentials("TRUE")], "CORS_INVALID_CONFIGURATION"],
+    ["empty credentials", [origin("*"), credentials("")], "CORS_INVALID_CONFIGURATION"],
+    ["trusted explicit credentials", [origin("https://app.example.com"), credentials("true")], null],
+    ["explicit origin", [origin("https://app.example.com")], null],
+    ["null origin", [origin("null"), credentials("true")], null],
+    ["missing origin", [credentials("true")], null],
+    ["no CORS", [], null],
+    ["duplicate origins", [origin("*"), origin("https://app.example.com"), credentials("true")], "CORS_INVALID_CONFIGURATION"],
+    ["identical duplicate origins", [origin("*"), origin("*"), credentials("true")], "CORS_INVALID_CONFIGURATION"],
+    ["duplicate credentials", [origin("*"), credentials("true"), credentials("true")], "CORS_INVALID_CONFIGURATION"],
+    ["combined origins", [origin("*, https://app.example.com"), credentials("true")], "CORS_INVALID_CONFIGURATION"],
+    ["combined credentials", [origin("*"), credentials("true, true")], "CORS_INVALID_CONFIGURATION"],
+    ["empty origin", [origin(""), credentials("true")], "CORS_INVALID_CONFIGURATION"],
+    ["origin with path", [origin("https://app.example.com/path"), credentials("true")], "CORS_INVALID_CONFIGURATION"],
+  ];
+  for (const [label, headers, code] of cases) {
+    await t.test(label, async () => {
+      const findings = (await inspectDiagnosticHeaders(headers)).filter((entry) => entry.code.startsWith("CORS_"));
+      assert.deepEqual(findings.map((entry) => entry.code), code ? [code] : []);
+      for (const entry of findings) {
+        assert.equal(entry.severity, "warning");
+        assert.match(entry.detail, /does not.*demonstrate credential exposure/);
+        assert.match(entry.recommendation, /intended CORS policy/);
+      }
+      if (code === "CORS_WILDCARD_WITH_CREDENTIALS") {
+        assert.deepEqual(findings[0], {
+          severity: "warning", code,
+          title: "Incompatible credentialed CORS configuration",
+          detail: "The response combines a wildcard allowed origin with credential support. Browsers block credentialed JavaScript access to this response; this does not by itself demonstrate credential exposure.",
+          recommendation: "Use an explicitly permitted origin for credentialed cross-origin access, or omit credential support if it is unnecessary. Review the endpoint's intended CORS policy.",
+        });
+      }
+    });
+  }
+});
+
+test("HSTS response states and bounded directive parsing", async (t) => {
+  const cases = [
+    [undefined, ["MISSING_HSTS"]],
+    ["max-age=0", ["HSTS_DISABLED"]],
+    ["max-age=0; includeSubDomains", ["HSTS_DISABLED"]],
+    ...[1, 300, 15551999].map((age) => [`max-age=${age}`, ["HSTS_MAX_AGE_LOW", "HSTS_MISSING_INCLUDE_SUBDOMAINS"]]),
+    ...[15552000, 31536000].map((age) => [`max-age=${age}`, ["HSTS_MISSING_INCLUDE_SUBDOMAINS"]]),
+    ['max-age="31536000"', ["HSTS_MISSING_INCLUDE_SUBDOMAINS"]],
+    ["MAX-AGE=31536000", ["HSTS_MISSING_INCLUDE_SUBDOMAINS"]],
+    ["max-age=31536000; includeSubDomains", []],
+    ['\t MAX-AGE = "31536000" ; INCLUDESUBDOMAINS \t', []],
+    ["max-age=000; includeSubDomains", ["HSTS_DISABLED"]],
+    ["max-age=00000000300; includeSubDomains", ["HSTS_MAX_AGE_LOW"]],
+    ["max-age=31536000; notincludeSubDomains", ["HSTS_MISSING_INCLUDE_SUBDOMAINS"]],
+    ['; max-age=31536000; extension="a;b"; includeSubDomains;', []],
+    ...["", " ", "includeSubDomains", "max-age=", "max-age=-1", "max-age=abc", "max-age=1.5", "max-age=0garbage", "x-max-age=31536000", "max-age=0; max-age=31536000", "max-age=300; MAX-AGE=300", "max-age=31536000garbage", "max-age=31536000, max-age=0", 'max-age="0garbage"', 'max-age="31536000', "max-age=300 includeSubDomains", "max-age=300; includeSubDomains=true", "max-age=300; includeSubDomains; includeSubDomains", "max-age=300\r\n", `max-age=${"9".repeat(8192)}`, `max-age=300${";".repeat(65)}`].map((value) => [value, ["HSTS_INVALID_POLICY"]]),
+    ["max-age=9007199254740993; includeSubDomains", []],
+    [`max-age=${"9".repeat(1000)}; includeSubDomains`, []],
+  ];
+  for (const [value, codes] of cases) {
+    await t.test(String(value).slice(0, 100), async () => {
+      const headers = value === undefined ? [] : [{ name: "Strict-Transport-Security", value }];
+      const findings = (await inspectDiagnosticHeaders(headers)).filter((entry) => /HSTS/.test(entry.code));
+      assert.deepEqual(findings.map((entry) => entry.code), codes);
+      for (const entry of findings) {
+        assert.equal(entry.severity, "warning");
+        assert.ok(entry.recommendation.length > 0);
+        if (entry.code === "HSTS_DISABLED") {
+          assert.match(entry.detail, /remove the cached HSTS policy for this host/);
+          assert.match(entry.recommendation, /positive max-age over HTTPS/);
+        } else if (entry.code === "HSTS_INVALID_POLICY") {
+          assert.match(entry.detail, /does not establish a valid HSTS policy/);
+          assert.match(entry.recommendation, /single non-negative integer max-age/);
+        } else if (entry.code === "HSTS_MAX_AGE_LOW") {
+          assert.match(entry.detail, /15,552,000 seconds/);
+          assert.equal(entry.recommendation, "Use a longer max-age once HTTPS is stable.");
+        } else if (entry.code === "HSTS_MISSING_INCLUDE_SUBDOMAINS") {
+          assert.match(entry.detail, /optional includeSubDomains.*not an invalid policy/);
+          assert.equal(entry.recommendation, "Consider includeSubDomains if all subdomains support HTTPS.");
+        } else {
+          assert.match(entry.detail, /did not include Strict-Transport-Security/);
+        }
+      }
+    });
+  }
+});
+
+test("HSTS analyzes the first field and preserves duplicate evidence", async (t) => {
+  for (const [ages, expected] of [
+    [["0", "31536000"], "HSTS_DISABLED"],
+    [["bad", "31536000"], "HSTS_INVALID_POLICY"],
+    [["", "31536000"], "HSTS_INVALID_POLICY"],
+    [["300", "31536000"], "HSTS_MAX_AGE_LOW"],
+    [["31536000", "0"], null],
+    [["0", "0"], "HSTS_DISABLED"],
+  ]) {
+    await t.test(ages.join(" / "), async () => {
+      const headers = ages.map((age) => ({ name: "strict-transport-security", value: age === "" ? "" : `max-age=${age}; includeSubDomains` }));
+      const findings = await inspectDiagnosticHeaders(headers);
+      const multiple = findings.find((entry) => entry.code === "MULTIPLE_HSTS_HEADERS");
+      assert.equal(multiple.severity, "warning");
+      assert.match(multiple.detail, /only the first/);
+      assert.match(multiple.recommendation, /one unambiguous HSTS header/);
+      assert.deepEqual(findings.filter((entry) => entry.code.startsWith("HSTS_")).map((entry) => entry.code), expected ? [expected] : []);
+      assert.equal(findings.some((entry) => entry.code === "DUPLICATE_SECURITY_HEADER"), ages[0] === ages[1]);
+    });
+  }
+});
+
+test("HSTS is not established by an HTTP response", async () => {
+  assert.deepEqual((await inspectDiagnosticHeaders([], "http")).filter((entry) => /HSTS/.test(entry.code)), []);
+  for (const value of ["max-age=31536000; includeSubDomains", "max-age=0", "garbage"]) {
+    const findings = (await inspectDiagnosticHeaders([{ name: "strict-transport-security", value }], "http")).filter((entry) => /HSTS/.test(entry.code));
+    assert.deepEqual(findings.map((entry) => entry.code), ["HSTS_OVER_HTTP"]);
+    assert.equal(findings[0].severity, "warning");
+    assert.match(findings[0].detail, /Browsers ignore.*plain HTTP/);
+    assert.match(findings[0].recommendation, /Send HSTS over HTTPS/);
+  }
+});
+
 test("header analysis reports duplicate Content-Security-Policy headers", async () => {
   resetHttpHeaderCheckState();
   const result = await checkHttpHeader({ target: "example.com", protocolMode: "https" }, {
@@ -458,6 +767,7 @@ test("HTTPS request to validated IP uses hostname for SNI, Host, certificate ver
       if (error) {
         queueMicrotask(() => request.emit("error", error));
       }
+      queueMicrotask(() => request.emit("close"));
     };
     return request;
   });
@@ -501,6 +811,7 @@ test("standard-port Host header uses URL hostname and not the resolved IP", asyn
       if (error) {
         queueMicrotask(() => request.emit("error", error));
       }
+      queueMicrotask(() => request.emit("close"));
     };
     return request;
   });
@@ -560,6 +871,7 @@ test("all address attempts fail with classified error, preserved cause, and safe
       if (error) {
         queueMicrotask(() => request.emit("error", error));
       }
+      queueMicrotask(() => request.emit("close"));
     };
     return request;
   });
@@ -601,6 +913,7 @@ test("request timeout is classified safely", async (t) => {
       if (error) {
         queueMicrotask(() => request.emit("error", error));
       }
+      queueMicrotask(() => request.emit("close"));
     };
     return request;
   });
@@ -633,6 +946,7 @@ test("TLS request failure is classified safely", async (t) => {
       if (error) {
         queueMicrotask(() => request.emit("error", error));
       }
+      queueMicrotask(() => request.emit("close"));
     };
     return request;
   });

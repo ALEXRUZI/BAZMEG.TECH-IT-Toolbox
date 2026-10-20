@@ -1,0 +1,141 @@
+{
+  "objectClassName": "domain",
+  "handle": "FIXTURE-1",
+  "ldhName": "example.net",
+  "links": [
+    {
+      "value": "https://example.test/evidence",
+      "rel": "self",
+      "href": "https://example.test/evidence",
+      "type": "application/rdap+json"
+    }
+  ],
+  "status": [
+    "client delete prohibited",
+    "client transfer prohibited",
+    "client update prohibited"
+  ],
+  "entities": [
+    {
+      "objectClassName": "entity",
+      "handle": "FIXTURE-2",
+      "roles": [
+        "registrar"
+      ],
+      "publicIds": [
+        {
+          "type": "IANA Registrar ID",
+          "identifier": "4242"
+        }
+      ],
+      "vcardArray": [
+        "vcard",
+        [
+          [
+            "version",
+            {},
+            "text",
+            "4.0"
+          ],
+          [
+            "fn",
+            {},
+            "text",
+            "Fixture registrar"
+          ]
+        ]
+      ],
+      "entities": [
+        {
+          "objectClassName": "entity",
+          "roles": [
+            "abuse"
+          ],
+          "vcardArray": [
+            "vcard",
+            [
+              [
+                "version",
+                {},
+                "text",
+                "4.0"
+              ],
+              [
+                "fn",
+                {},
+                "text",
+                ""
+              ],
+              [
+                "tel",
+                {
+                  "type": "voice"
+                },
+                "uri",
+                "tel:+1-202-555-0100"
+              ],
+              [
+                "email",
+                {},
+                "text",
+                ""
+              ]
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "eventAction": "registration",
+      "eventDate": "1995-08-31T04:00:00Z"
+    },
+    {
+      "eventAction": "expiration",
+      "eventDate": "2027-08-30T04:00:00Z"
+    },
+    {
+      "eventAction": "last changed",
+      "eventDate": "2026-08-31T08:01:44Z"
+    },
+    {
+      "eventAction": "last update of RDAP database",
+      "eventDate": "2026-10-19T19:16:34Z"
+    }
+  ],
+  "secureDNS": {
+    "delegationSigned": true,
+    "dsData": [
+      {
+        "keyTag": 2371,
+        "algorithm": 13,
+        "digestType": 2,
+        "digest": "6EBDD24B59EBB0A642D07F2D8EF3CB65AAF1124FA5507FB2F2101D53B45FE666"
+      }
+    ]
+  },
+  "nameservers": [
+    {
+      "objectClassName": "nameserver",
+      "ldhName": "BETTY.NS.CLOUDFLARE.COM"
+    },
+    {
+      "objectClassName": "nameserver",
+      "ldhName": "HUGH.NS.CLOUDFLARE.COM"
+    }
+  ],
+  "rdapConformance": [
+    "rdap_level_0",
+    "icann_rdap_technical_implementation_guide_1",
+    "icann_rdap_response_profile_1"
+  ],
+  "notices": [
+    {
+      "title": "Sanitized notice",
+      "description": [
+        "Fixture contains synthetic contact values."
+      ]
+    }
+  ]
+}

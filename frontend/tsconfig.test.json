@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "types": ["node", "vitest", "@testing-library/jest-dom"]
+  },
+  "include": ["src", "tests", "e2e", "vitest.config.ts", "playwright.config.ts", "vite.e2e.config.ts"],
+  "references": []
+}

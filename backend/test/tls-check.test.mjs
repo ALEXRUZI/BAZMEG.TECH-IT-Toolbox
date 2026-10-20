@@ -133,6 +133,7 @@ test("builds compact issuer chain entries without certificate blobs", () => {
     },
     {
       type: "intermediate",
+      ca: true,
       subject: { CN: "Example Intermediate CA" },
       issuer: { CN: "Example Root CA" },
       validFrom: "Jan 1 00:00:00 2025 GMT",
@@ -140,7 +141,8 @@ test("builds compact issuer chain entries without certificate blobs", () => {
       fingerprint256: "CC:DD",
     },
     {
-      type: "root",
+      type: "self-signed-ca",
+      ca: true, selfIssued: true, selfSigned: true,
       subject: { CN: "Example Root CA" },
       issuer: { CN: "Example Root CA" },
       validFrom: "Jan 1 00:00:00 2020 GMT",
@@ -149,8 +151,8 @@ test("builds compact issuer chain entries without certificate blobs", () => {
     },
   ]);
 
-  assert.deepEqual(issuerChain.map((entry) => entry.level), ["leaf", "intermediate", "root"]);
-  assert.deepEqual(issuerChain.map((entry) => entry.source), ["peer-chain", "peer-chain", "peer-chain"]);
+  assert.deepEqual(issuerChain.map((entry) => entry.level), ["leaf", "intermediate", "self-signed-ca"]);
+  assert.deepEqual(issuerChain.map((entry) => entry.source), ["peer", "inferred", "inferred"]);
   assert.equal(issuerChain[0].subject, "CN: www.example.com");
   assert.equal(issuerChain[0].issuer, "CN: Example Intermediate CA, O: Example Trust");
   assert.equal(issuerChain[0].fingerprint256, "AA:BB");
@@ -169,7 +171,7 @@ test("does not label non-self-issued chain entries as root", () => {
   ]);
 
   assert.equal(issuerChain[0].level, "leaf");
-  assert.equal(issuerChain[0].source, "peer-chain");
+  assert.equal(issuerChain[0].source, "peer");
 });
 
 test("issuer chain metadata count agrees with summary wording", () => {
@@ -205,10 +207,11 @@ test("issuer chain metadata count agrees with summary wording", () => {
     serverProvidedCertificateCount: metadata.serverProvidedCertificateCount,
   });
 
-  assert.equal(metadata.serverProvidedCertificateCount, 3);
+  assert.equal(metadata.serverProvidedCertificateCount, null);
+  assert.equal(metadata.issuerChainComplete, null);
   assert.equal(metadata.issuerChain[0].level, "leaf");
-  assert.equal(metadata.issuerChain[0].source, "peer-chain");
-  assert.equal(message, "Issuer chain entries shown: 3. Server-provided certificates: 3.");
+  assert.equal(metadata.issuerChain[0].source, "peer");
+  assert.equal(message, "Issuer chain entries shown: 3. Server-provided certificates: unknown. Chain completeness is unverified.");
   assert.doesNotMatch(message, /The server provided 3 certificates/);
 });
 

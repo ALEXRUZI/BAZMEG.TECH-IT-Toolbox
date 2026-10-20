@@ -1,0 +1,226 @@
+{
+  "rdapConformance": [
+    "rdap_level_0",
+    "icann_rdap_response_profile_1",
+    "icann_rdap_technical_implementation_guide_1",
+    "redacted"
+  ],
+  "notices": [
+    {
+      "title": "Sanitized notice",
+      "description": [
+        "Fixture contains synthetic contact values."
+      ]
+    }
+  ],
+  "redacted": [
+    {
+      "name": {
+        "type": "Registrant Contact"
+      },
+      "prePath": "$.entities[?(@.roles[0]=='registrant')]",
+      "pathLang": "jsonpath",
+      "method": "removal"
+    }
+  ],
+  "objectClassName": "domain",
+  "handle": "FIXTURE-1",
+  "ldhName": "example.tech",
+  "unicodeName": "example.tech",
+  "nameservers": [
+    {
+      "objectClassName": "nameserver",
+      "handle": "FIXTURE-2",
+      "ldhName": "ns03.trs-dns.com",
+      "unicodeName": "ns03.trs-dns.com",
+      "status": [
+        "associated"
+      ],
+      "events": [
+        {
+          "eventAction": "last update of RDAP database",
+          "eventDate": "2026-10-19T19:16:50.382Z"
+        }
+      ]
+    },
+    {
+      "objectClassName": "nameserver",
+      "handle": "FIXTURE-3",
+      "ldhName": "ns03.trs-dns.net",
+      "unicodeName": "ns03.trs-dns.net",
+      "status": [
+        "associated"
+      ],
+      "events": [
+        {
+          "eventAction": "last update of RDAP database",
+          "eventDate": "2026-10-19T19:16:50.382Z"
+        }
+      ]
+    }
+  ],
+  "secureDNS": {
+    "delegationSigned": true,
+    "dsData": [
+      {
+        "keyTag": 30000,
+        "algorithm": 13,
+        "digest": "297AC68244BAF2268554519AAE43367C84A232055832AEB3FAD6A478A6FFEBAD",
+        "digestType": 2
+      }
+    ]
+  },
+  "entities": [
+    {
+      "objectClassName": "entity",
+      "handle": "FIXTURE-4",
+      "vcardArray": [
+        "vcard",
+        [
+          [
+            "version",
+            {},
+            "text",
+            "4.0"
+          ],
+          [
+            "fn",
+            {},
+            "text",
+            "Fixture registrar"
+          ],
+          [
+            "adr",
+            {
+              "cc": "KY"
+            },
+            "text",
+            [
+              "",
+              "",
+              "Example street",
+              "Example City",
+              "",
+              "00000",
+              "ZZ"
+            ]
+          ],
+          [
+            "tel",
+            {
+              "type": "voice"
+            },
+            "uri",
+            "tel:+1-202-555-0100"
+          ],
+          [
+            "email",
+            {},
+            "text",
+            "contact@example.test"
+          ]
+        ]
+      ],
+      "roles": [
+        "registrar"
+      ],
+      "publicIds": [
+        {
+          "type": "IANA Registrar ID",
+          "identifier": "4242"
+        }
+      ],
+      "entities": [
+        {
+          "objectClassName": "entity",
+          "vcardArray": [
+            "vcard",
+            [
+              [
+                "version",
+                {},
+                "text",
+                "4.0"
+              ],
+              [
+                "fn",
+                {},
+                "text",
+                ""
+              ],
+              [
+                "tel",
+                {
+                  "type": "voice"
+                },
+                "uri",
+                "tel:+1-202-555-0100"
+              ],
+              [
+                "email",
+                {},
+                "text",
+                "contact@example.test"
+              ]
+            ]
+          ],
+          "roles": [
+            "abuse"
+          ],
+          "events": [
+            {
+              "eventAction": "last update of RDAP database",
+              "eventDate": "2026-10-19T19:16:50.382Z"
+            }
+          ]
+        }
+      ],
+      "links": [
+        {
+          "rel": "about",
+          "href": "https://example.test/evidence",
+          "type": "application/rdap+json"
+        }
+      ],
+      "events": [
+        {
+          "eventAction": "last update of RDAP database",
+          "eventDate": "2026-10-19T19:16:50.382Z"
+        }
+      ]
+    }
+  ],
+  "status": [
+    "server update prohibited",
+    "server renew prohibited",
+    "server delete prohibited",
+    "server transfer prohibited"
+  ],
+  "links": [
+    {
+      "value": "https://example.test/evidence",
+      "rel": "self",
+      "href": "https://example.test/evidence",
+      "type": "application/rdap+json"
+    }
+  ],
+  "events": [
+    {
+      "eventAction": "registration",
+      "eventActor": "radix",
+      "eventDate": "2014-11-13T18:14:42.000Z"
+    },
+    {
+      "eventAction": "expiration",
+      "eventDate": "2026-11-13T23:59:59.000Z"
+    },
+    {
+      "eventAction": "last changed",
+      "eventDate": "2026-03-17T15:38:48.454Z"
+    },
+    {
+      "eventAction": "last update of RDAP database",
+      "eventDate": "2026-10-19T19:16:50.382Z"
+    }
+  ]
+}

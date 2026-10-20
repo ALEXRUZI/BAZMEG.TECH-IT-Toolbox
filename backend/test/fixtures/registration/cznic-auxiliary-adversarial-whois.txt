@@ -1,0 +1,49 @@
+domain: example.cz
+registrant: HOLDER-TEST
+nsset: NSSET-TEST
+keyset: KEYSET-TEST
+registrar: REG-TEST
+registered: 2000-01-01
+changed: 2026-01-01T12:00:00+01:00
+expire: 2030-01-01
+
+nsset: NSSET-TEST
+nserver: NS1.EXAMPLE.TEST (192.0.2.1)
+nserver: ns2.example.test
+status: AUXILIARY-STATUS
+created: 1997-01-01
+updated date: 1997-02-01
+registered: 1997-03-01
+changed: 1997-04-01
+expire: 1997-05-01
+registrar iana id: 9999
+registrar code: AUXILIARY-CODE
+registrar name: Auxiliary Registrar
+registrar organization: Auxiliary Registrar Organization
+registrar phone: +1.5550100999
+registrar email: auxiliary-registrar@example.test
+registrar abuse contact email: auxiliary-abuse@example.test
+registrar abuse contact phone: +1.5550100998
+registrant name: Auxiliary Intruder
+registrant organization: Auxiliary Organization
+registrant organization id: AUXILIARY-ORG-ID
+registrant phone: +1.5550100997
+registrant email: auxiliary-holder@example.test
+dnssec: AUXILIARY-DNSSEC
+ds-rdata: 9999 250 251 ABCD
+ds record: 9998 13 2 ABCD
+custom-field: AUXILIARY-UNKNOWN
+
+contact: HOLDER-TEST
+name: Fixture Holder
+org: Fixture Holder Ltd
+email: holder@example.test
+
+keyset: KEYSET-TEST
+status: KEYSET-STATUS
+created: 1996-01-01
+registrant name: Keyset Intruder
+registrar iana id: 9997
+dnssec: KEYSET-DNSSEC
+ds-rdata: 9997 250 251 ABCD
+dnskey: 257 3 13 FIXTURE

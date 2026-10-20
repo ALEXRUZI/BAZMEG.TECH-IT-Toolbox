@@ -1,0 +1,24 @@
+    Domain name:
+        example.uk
+
+    Registrant:
+        Fixture Holder Ltd
+
+    Registrar:
+        Fixture Registrar Ltd [Tag = FIXTURE]
+        URL: https://registrar.example.test
+
+    Relevant dates:
+        Registered on: 10-Jun-2003
+        Expiry date: 10-Jun-2030
+        Last updated: 04-Jun-2026
+
+    Registration status:
+        Registered until expiry date.
+
+    Name servers:
+        ns1.example.test 192.0.2.1
+        ns2.example.test
+
+    DNSSEC:
+        Signed

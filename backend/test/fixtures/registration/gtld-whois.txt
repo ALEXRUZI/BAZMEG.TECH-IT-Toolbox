@@ -1,0 +1,13 @@
+Domain Name: EXAMPLE.COM
+Registry Domain ID: FIXTURE-DOMAIN
+Registrar: Fixture Registrar Ltd
+Registrar IANA ID: 4242
+Creation Date: 2000-01-01T00:00:00Z
+Updated Date: 2026-01-01T00:00:00Z
+Registry Expiry Date: 2030-01-01T00:00:00Z
+Name Server: NS1.EXAMPLE.TEST
+Name Server: NS2.EXAMPLE.TEST
+DNSSEC: signedDelegation
+DS Record: 12345 13 2 ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB
+DS Record: 12346 250 251 CDCD
+Registrar Abuse Contact Email: abuse@example.test

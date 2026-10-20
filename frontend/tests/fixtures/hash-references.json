@@ -1,0 +1,179 @@
+[
+  {
+    "text": "",
+    "digests": {
+      "crc32": "00000000",
+      "blake2b256": "0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8",
+      "xxhash32": "02cc5d05"
+    }
+  },
+  {
+    "text": "abc",
+    "digests": {
+      "crc32": "352441c2",
+      "blake2b256": "bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319",
+      "xxhash32": "32d153ff"
+    }
+  },
+  {
+    "text": "123456789",
+    "digests": {
+      "crc32": "cbf43926",
+      "blake2b256": "16e0bf1f85594a11e75030981c0b670370b3ad83a43f49ae58a2fd6f6513cde9",
+      "xxhash32": "937bad67"
+    }
+  },
+  {
+    "text": " \t雪😀é\r\n\r ",
+    "digests": {
+      "crc32": "94612e0e",
+      "blake2b256": "df17c52a8b7f4795729cf3e06e9d4e9c5327281a5f8c0bf5ee4129a10fc5f3cc",
+      "xxhash32": "f2e8d12b"
+    }
+  },
+  {
+    "text": "\n\r\n",
+    "digests": {
+      "crc32": "a7adcb97",
+      "blake2b256": "5a69bcb5023306eaf61c84dc838e942d7076f8848447cd795e7b14bb2bf57a06",
+      "xxhash32": "ffe744ed"
+    }
+  },
+  {
+    "text": "\u0000",
+    "digests": {
+      "crc32": "d202ef8d",
+      "blake2b256": "03170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314",
+      "xxhash32": "cf65b03e"
+    }
+  },
+  {
+    "text": "33",
+    "digests": {
+      "crc32": "0a6216d9",
+      "blake2b256": "ef97c9e36f5e33370c795599501e8f834363461eb001fd227831992c57b5bedf",
+      "xxhash32": "de63328a"
+    }
+  },
+  {
+    "text": "0",
+    "digests": {
+      "crc32": "f4dbdf21",
+      "blake2b256": "0fd923ca5e7218c4ba3c3801c26a617ecdbfdaebb9c76ce2eca166e7855efbb8",
+      "xxhash32": "48454cb2"
+    }
+  },
+  {
+    "text": "2",
+    "digests": {
+      "crc32": "1ad5be0d",
+      "blake2b256": "31237cdb79ae1dfa7ffb87cde7ea8a80352d300ee5ac758a6cddd19d671925ec",
+      "xxhash32": "0c436334"
+    }
+  },
+  {
+    "length": 1,
+    "digests": {
+      "crc32": "d202ef8d",
+      "blake2b256": "03170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314",
+      "xxhash32": "cf65b03e"
+    }
+  },
+  {
+    "length": 15,
+    "digests": {
+      "crc32": "a06c675e",
+      "blake2b256": "929cec40e9e746e771c6ad05cfcf37641254ef5e802fa71a02f8982f525f2b00",
+      "xxhash32": "57c01ece"
+    }
+  },
+  {
+    "length": 16,
+    "digests": {
+      "crc32": "cecee288",
+      "blake2b256": "c7cb5d1a1a214f1d833a21fe6c7b2420e417c2f220784cbe90072975131bc367",
+      "xxhash32": "b72837f4"
+    }
+  },
+  {
+    "length": 17,
+    "digests": {
+      "crc32": "2c183a19",
+      "blake2b256": "ced0cd609f3c8ff85b9cec93bba556dbe3caa996ac5beb629d4512473d6b31ae",
+      "xxhash32": "7c77adc2"
+    }
+  },
+  {
+    "length": 127,
+    "digests": {
+      "crc32": "dec481aa",
+      "blake2b256": "f2fe67ff342e21b8f45e8f2e0bcd1d9243245d50ee6c78042e9c491388791c72",
+      "xxhash32": "f07a1b8b"
+    }
+  },
+  {
+    "length": 128,
+    "digests": {
+      "crc32": "24650d57",
+      "blake2b256": "c3582f71ebb2be66fa5dd750f80baae97554f3b015663c8be377cfcb2488c1d1",
+      "xxhash32": "6d6194b7"
+    }
+  },
+  {
+    "length": 129,
+    "digests": {
+      "crc32": "ca91cdf7",
+      "blake2b256": "f7f3c46ba2564ff4c4c162da1f5b605f9f1c4aa6a20652a9f9a337c1a2f5b9c9",
+      "xxhash32": "6572cb97"
+    }
+  },
+  {
+    "length": 4194303,
+    "digests": {
+      "crc32": "eeb6ddda",
+      "blake2b256": "cbf5b457bfc3e2bd3610cac59435018a1787d1395e8858039aec16d407ca9ccb",
+      "xxhash32": "60c0364b"
+    }
+  },
+  {
+    "length": 4194304,
+    "digests": {
+      "crc32": "a1304fd3",
+      "blake2b256": "2bd617230a25c25781c192e70c2fec6a59479c90b51a3bc5638bbbfe27d4d336",
+      "xxhash32": "94ca1800"
+    }
+  },
+  {
+    "length": 4194305,
+    "digests": {
+      "crc32": "41aa205f",
+      "blake2b256": "a9e641b8026f10b0224e8f7842a380b02bdbcf49b0ce79691e832fb5e985efc4",
+      "xxhash32": "bc85acfb"
+    }
+  },
+  {
+    "length": 4194321,
+    "digests": {
+      "crc32": "4bcdd918",
+      "blake2b256": "d8da0b721f21cb5d248cd4cf4d340d216e946ebe70996784b31aa232e2683eeb",
+      "xxhash32": "9e609bb0"
+    }
+  },
+  {
+    "length": 8388625,
+    "digests": {
+      "crc32": "b0e9d8ec",
+      "blake2b256": "aabdddfe7d4a300bdf70606739b550d513fff9055dd96ec0f74b19c00064bbab",
+      "xxhash32": "4260900f"
+    }
+  },
+  {
+    "length": 104857600,
+    "zeros": true,
+    "digests": {
+      "crc32": "4b282398",
+      "blake2b256": "19846668170ade0c6caa5ca5c3b6a9d219469b5894126ddf4d5884962666afa6",
+      "xxhash32": "d6bd9d77"
+    }
+  }
+]

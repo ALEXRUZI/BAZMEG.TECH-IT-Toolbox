@@ -1,0 +1,11 @@
+{
+  "name": "toolbox-production-pages-tooling",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test bundle.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.1"
+  }
+}

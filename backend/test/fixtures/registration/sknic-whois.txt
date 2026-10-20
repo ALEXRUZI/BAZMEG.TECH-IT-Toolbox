@@ -1,0 +1,35 @@
+Domain:                       example.sk
+Created:                      2003-06-10
+Valid Until:                  2027-06-10
+Updated:                      2026-06-04
+Domain Status:                serverRenewProhibited, serverUpdateProhibited, serverDeleteProhibited, serverTransferProhibited
+Nameserver:                   e.tld.sk
+Nameserver:                   f.tld.sk
+Nameserver:                   g.tld.sk
+Nameserver:                   h.tld.sk
+
+Domain registrant:            REG-TEST
+Name:                         Fixture Registry Ltd
+Organization:                 Fixture Registry Ltd
+Organization ID:              00000000
+Phone:                        +1.2025550100
+Email:                        contact@example.test
+Street:                       Example street 1
+City:                         Example City
+Postal Code:                  00000
+Country Code:                 SK
+Created:                      2017-09-01
+Updated:                      2026-04-27
+
+Registrar:                    REG-TEST
+Name:                         Fixture Registry Ltd
+Organization:                 Fixture Registry Ltd
+Organization ID:              00000000
+Phone:                        +1.2025550100
+Email:                        contact@example.test
+Street:                       Example street 1
+City:                         Example City
+Postal Code:                  00000
+Country Code:                 SK
+Created:                      2017-09-01
+Updated:                      2026-04-27

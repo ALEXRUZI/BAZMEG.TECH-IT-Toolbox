@@ -2,11 +2,13 @@ import dgram from "node:dgram";
 import net from "node:net";
 import { domainToASCII } from "node:url";
 import { randomInt } from "node:crypto";
+import { BoundedCache, BoundedRateHistory, RETENTION_LIMITS } from "./retained-state.mjs";
+import { admitDns, createDnsOperation, DnsCheckError, mapDnsWorkers } from "./dns-resources.mjs";
+export { DnsCheckError } from "./dns-resources.mjs";
 
 const SUPPORTED_RECORD_TYPES = new Set(["A", "AAAA", "CNAME", "MX", "TXT", "NS", "SOA", "CAA", "PTR", "SRV"]);
 const SINGLE_CACHE_TTL_SECONDS = 60;
 const BURST_CACHE_TTL_SECONDS = 300;
-const DNS_TIMEOUT_MS = 3000;
 const CNAME_FOLLOW_LIMIT = 5;
 const RATE_WINDOW_FIVE_MINUTES_MS = 5 * 60 * 1000;
 const RATE_WINDOW_HOUR_MS = 60 * 60 * 1000;
@@ -159,24 +161,21 @@ export const BURST_RESOLVER_IDS = Object.freeze([
   "level3",
 ]);
 
-const cache = new Map();
-const rateBuckets = new Map();
+const cache = new BoundedCache();
+const rateBuckets = new BoundedRateHistory(RETENTION_LIMITS.dnsClients, RATE_LIMIT_HOUR, RATE_WINDOW_HOUR_MS);
 
-export class DnsCheckError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.name = "DnsCheckError";
-    this.code = code;
-    this.safeMessage = message;
-  }
+export function dnsRetainedState() {
+  return { cacheEntries: cache.size, rateClientEntries: rateBuckets.size };
 }
 
 export async function checkDns(payload, options = {}) {
   const now = options.now || Date.now;
   const request = normalizeRequest(payload || {});
+  if (options.signal?.aborted) throw new DnsCheckError("DNS_CHECK_CANCELLED", "DNS check was cancelled.");
   const cacheKey = buildCacheKey(request);
-  const cached = cache.get(cacheKey);
   const startedAt = now();
+  rateBuckets.prune(startedAt);
+  const cached = cache.get(cacheKey, startedAt);
 
   if (cached && cached.expiresAt > startedAt) {
     return withCacheMetadata(cached.response, {
@@ -187,30 +186,42 @@ export async function checkDns(payload, options = {}) {
     });
   }
 
-  if (cached) {
-    cache.delete(cacheKey);
+  const client = options.clientIp || "unknown";
+  const release = admitDns(client);
+  let operation;
+  let response;
+  let cacheResponse;
+  try {
+    enforceRateLimit(client, request.tokenCost, startedAt);
+    operation = createDnsOperation(request.mode, options);
+    request.operation = operation;
+    const queryDns = options.queryDns || queryDnsUdp;
+    const baseResponse = request.mode === "single"
+      ? await checkSingleProvider(request, queryDns)
+      : await checkBurstProviders(request, queryDns);
+
+    operation.assertLive();
+    response = withCacheMetadata(baseResponse, {
+      fromCache: false,
+      ttlSeconds: request.cacheTtlSeconds,
+      storedAt: startedAt,
+      now: now(),
+    });
+    cacheResponse = withoutCacheMetadata(response);
+    operation.assertLive();
+  } finally {
+    await operation?.dispose();
+    release();
   }
-
-  enforceRateLimit(options.clientIp || "unknown", request.tokenCost, startedAt);
-
-  const queryDns = options.queryDns || queryDnsUdp;
-  const baseResponse = request.mode === "single"
-    ? await checkSingleProvider(request, queryDns)
-    : await checkBurstProviders(request, queryDns);
-
-  const response = withCacheMetadata(baseResponse, {
-    fromCache: false,
-    ttlSeconds: request.cacheTtlSeconds,
-    storedAt: startedAt,
-    now: now(),
-  });
-
-  cache.set(cacheKey, {
+  // Cleanup is part of the diagnostic deadline. Commit only after it finishes,
+  // including cancellation arriving during the final asynchronous cleanup turn.
+  operation.assertLive();
+  if (options.signal?.aborted) throw new DnsCheckError("DNS_CHECK_CANCELLED", "DNS check was cancelled.");
+  if (isCacheableDiagnostic(cacheResponse)) cache.set(cacheKey, {
     storedAt: startedAt,
     expiresAt: startedAt + request.cacheTtlSeconds * 1000,
-    response: withoutCacheMetadata(response),
-  });
-
+    response: cacheResponse,
+  }, now(), operation.assertLive);
   return response;
 }
 
@@ -317,7 +328,7 @@ function normalizeQuery(payload, recordType) {
   }
 
   const originalInput = getString(payload.query || payload.domain || payload.name);
-  const queryName = normalizePublicDnsName(originalInput, { allowServiceLabels: false });
+  const queryName = normalizePublicDnsName(originalInput, { allowServiceLabels: false, allowOwnerLabels: recordType === "TXT" });
 
   return {
     originalInput: originalInput.trim(),
@@ -401,8 +412,13 @@ function normalizeSrvProtocol(value) {
   return protocol;
 }
 
-function normalizePublicDnsName(value, { allowServiceLabels }) {
+function normalizePublicDnsName(value, { allowServiceLabels, allowOwnerLabels = false }) {
   const trimmed = getString(value).trim().replace(/\.$/, "").toLowerCase();
+  // Validate before IDNA conversion: URL normalization must not silently remove
+  // controls, whitespace or unsupported characters from a DNS owner name.
+  if (!/^[\p{L}\p{M}\p{N}._-]+$/u.test(trimmed)) {
+    throw new DnsCheckError("INVALID_QUERY", "Enter a valid public DNS name.");
+  }
   const ascii = domainToASCII(trimmed);
 
   if (!ascii || ascii !== ascii.toLowerCase()) {
@@ -432,6 +448,9 @@ function normalizePublicDnsName(value, { allowServiceLabels }) {
   }
 
   const labelsValid = labels.every((label, index) => {
+    if (allowOwnerLabels) {
+      return /^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?$/.test(label);
+    }
     if (allowServiceLabels && index < 2 && label.startsWith("_")) {
       return /^_[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label);
     }
@@ -476,10 +495,14 @@ async function checkSingleProvider(request, queryDns) {
 async function checkBurstProviders(request, queryDns) {
   const providers = BURST_RESOLVER_IDS.map((id) => RESOLVER_REGISTRY[id]);
   const startedAt = Date.now();
-  const providerResults = await Promise.all(providers.map((provider) => runProviderCheck(provider, request, queryDns)));
+  // Complete every primary lookup before spending any budget on enrichment.
+  const providerResults = await mapDnsWorkers(providers, (provider) => runProviderCheck(provider, request, queryDns, false));
+  await mapDnsWorkers(providers, async (provider, index) => {
+    if (providerResults[index].ok) await enrichProviderResponse(providerResults[index], provider, request, queryDns);
+  });
   const durationMs = Date.now() - startedAt;
   const successful = providerResults.filter((result) => result.ok);
-  const fingerprints = new Set(successful.map((result) => answerFingerprint(result.records)));
+  const fingerprints = new Set(successful.map((result) => `${result.responseCode}:${answerFingerprint(result.records)}`));
   const warnings = [];
   const diagnostics = [
     {
@@ -490,12 +513,14 @@ async function checkBurstProviders(request, queryDns) {
   ];
   const status = classifyBurstStatus(providerResults, fingerprints);
 
-  if (fingerprints.size > 1) {
+  if (providerResults.some((result) => !result.ok)) {
+    warnings.push("Some provider checks failed or were incomplete. No full-provider comparison, record-absence, DNSSEC or filtering conclusion can be made.");
+  } else if (fingerprints.size > 1) {
     warnings.push("Providers returned different answers.");
   }
 
   return {
-    ok: true,
+    ok: providerResults.every((result) => result.ok),
     mode: "burst",
     query: formatQuery(request),
     resolver: {
@@ -532,26 +557,29 @@ async function checkBurstProviders(request, queryDns) {
         answer: result.answer,
         authority: result.authority,
         additional: result.additional,
+        raw: result.raw,
       })),
     },
   };
 }
 
-async function runProviderCheck(provider, request, queryDns) {
+async function runProviderCheck(provider, request, queryDns, enrich = true) {
   const startedAt = Date.now();
 
   try {
     const dnsResponse = await queryWithFallback(provider, request.query.queryName, request.recordType, {
       queryDns,
       dnssec: request.dnssecRequested,
+      operation: request.operation,
     });
     const durationMs = Date.now() - startedAt;
     const base = buildProviderResponse(provider, request, dnsResponse, durationMs);
 
-    await enrichProviderResponse(base, provider, request, queryDns);
+    if (enrich && base.ok) await enrichProviderResponse(base, provider, request, queryDns);
 
     return base;
   } catch (error) {
+    request.operation.assertLive();
     const durationMs = Date.now() - startedAt;
     const status = error?.code === "DNS_TIMEOUT" ? "timeout" : "resolver-error";
 
@@ -593,16 +621,25 @@ function buildProviderResponse(provider, request, dnsResponse, durationMs) {
   const diagnostics = [];
   const status = classifyResponse(request, { ...dnsResponse, rcodeName: responseCode }, records, answer);
 
-  if (request.dnssecRequested && responseCode === "SERVFAIL") {
+  if (status === "incomplete") {
+    warnings.push("The UDP DNS response was truncated (TC=1). Available answers are partial; record absence and a complete lookup were not established. TCP fallback is not supported.");
+  } else if (!["NOERROR", "NXDOMAIN"].includes(responseCode)) {
+    warnings.push(`The resolver returned ${responseCode}; the lookup was unsuccessful.`);
+  }
+
+  if (status === "possible-dnssec-failure") {
     warnings.push("This SERVFAIL may be caused by DNSSEC validation failure.");
   }
 
   if (status === "possible-sinkhole") {
     warnings.push("The answer contains addresses commonly used for blocking or sinkholes.");
   }
+  if (status === "resolver-error") {
+    warnings.push("The answer exceeded the supported CNAME chain depth; the requested lookup could not be completed.");
+  }
 
   return {
-    ok: true,
+    ok: ["ok", "no-record", "nxdomain", "possible-sinkhole"].includes(status),
     mode: request.mode,
     query: formatQuery(request),
     resolver: summarizeProvider(provider),
@@ -625,6 +662,7 @@ function buildProviderResponse(provider, request, dnsResponse, durationMs) {
     },
     raw: {
       id: dnsResponse.id ?? null,
+      rcode: dnsResponse.rcode ?? null,
       responseCode,
       flags,
       question: Array.isArray(dnsResponse.question) ? dnsResponse.question : [],
@@ -640,6 +678,17 @@ function normalizeRecordArray(records) {
 }
 
 async function enrichProviderResponse(response, provider, request, queryDns) {
+  request = {
+    ...request,
+    diagnosticQuery: safeDiagnosticQuery,
+    diagnosticFailed: (error, name, type) => {
+      const budgetExhausted = error?.code === "DNS_WORK_BUDGET_EXHAUSTED";
+      const diagnostic = markOmitted(response, budgetExhausted
+        ? "Optional DNS diagnostics were omitted because the work budget was exhausted."
+        : "A resolver diagnostic could not be completed.");
+      diagnostic.omittedQueries.push({ name, type, reason: budgetExhausted ? "work-budget" : "resolver-failure" });
+    },
+  };
   if (request.recordType === "MX") {
     await enrichMxResponse(response, provider, request, queryDns);
   }
@@ -653,16 +702,32 @@ async function enrichProviderResponse(response, provider, request, queryDns) {
   }
 }
 
+function markOmitted(response, message) {
+  let diagnostic = response.diagnostics.find((item) => item.id === "optional_diagnostics_incomplete");
+  if (!diagnostic) {
+    diagnostic = { id: "optional_diagnostics_incomplete", status: "warn", message: "", omittedQueries: [] };
+    response.diagnostics.push(diagnostic);
+  }
+  if (!response.warnings.includes(message)) {
+    diagnostic.message = [diagnostic.message, message].filter(Boolean).join(" ");
+    response.warnings.push(message);
+  }
+  return diagnostic;
+}
+
 async function enrichMxResponse(response, provider, request, queryDns) {
   const mxRecords = response.records.filter((record) => record.type === "MX");
   const diagnostics = [];
+  const mxLimit = request.mode === "burst" ? 2 : 10;
+  if (mxRecords.length > mxLimit) markOmitted(response, `MX resolution was limited to the first ${mxLimit} targets; remaining targets were not checked.`);
 
-  for (const record of mxRecords.slice(0, 10)) {
+  for (const record of mxRecords.slice(0, mxLimit)) {
     const [aResponse, aaaaResponse, cnameResponse] = await Promise.all([
-      safeDiagnosticQuery(provider, record.exchange, "A", request, queryDns),
-      safeDiagnosticQuery(provider, record.exchange, "AAAA", request, queryDns),
-      safeDiagnosticQuery(provider, record.exchange, "CNAME", request, queryDns),
+      request.diagnosticQuery(provider, record.exchange, "A", request, queryDns),
+      request.diagnosticQuery(provider, record.exchange, "AAAA", request, queryDns),
+      request.diagnosticQuery(provider, record.exchange, "CNAME", request, queryDns),
     ]);
+    if (!aResponse || !aaaaResponse || !cnameResponse) continue;
     const aRecords = extractRequestedRecords(aResponse?.answer?.map(normalizeRecord) || [], "A");
     const aaaaRecords = extractRequestedRecords(aaaaResponse?.answer?.map(normalizeRecord) || [], "AAAA");
     const cnameRecords = extractRequestedRecords(cnameResponse?.answer?.map(normalizeRecord) || [], "CNAME");
@@ -691,8 +756,8 @@ async function enrichMxResponse(response, provider, request, queryDns) {
 
   if (!mxRecords.length && response.responseCode === "NOERROR") {
     const [aResponse, aaaaResponse] = await Promise.all([
-      safeDiagnosticQuery(provider, request.query.queryName, "A", request, queryDns),
-      safeDiagnosticQuery(provider, request.query.queryName, "AAAA", request, queryDns),
+      request.diagnosticQuery(provider, request.query.queryName, "A", request, queryDns),
+      request.diagnosticQuery(provider, request.query.queryName, "AAAA", request, queryDns),
     ]);
     const aRecords = extractRequestedRecords(aResponse?.answer?.map(normalizeRecord) || [], "A");
     const aaaaRecords = extractRequestedRecords(aaaaResponse?.answer?.map(normalizeRecord) || [], "AAAA");
@@ -717,10 +782,21 @@ async function enrichTxtResponse(response, provider, request, queryDns) {
   response.diagnostics.push(...txtDiagnostics.diagnostics);
   response.warnings.push(...txtDiagnostics.warnings);
 
-  const dmarcName = request.query.queryName.startsWith("_dmarc.")
-    ? request.query.queryName
-    : `_dmarc.${request.query.queryName}`;
-  const dmarcResponse = await safeDiagnosticQuery(provider, dmarcName, "TXT", request, queryDns);
+  if (request.query.queryName.startsWith("_dmarc.")) {
+    const dmarcDiagnostics = analyzeDmarcRecords(request.query.queryName, txtValues);
+    response.diagnostics.push(...dmarcDiagnostics.diagnostics);
+    response.warnings.push(...dmarcDiagnostics.warnings);
+    return;
+  }
+  // A helper owner is not the domain itself. Do not invent a DMARC owner by
+  // prefixing the DKIM selector or ACME challenge owner.
+  const domain = request.query.queryName.includes("._domainkey.")
+    ? request.query.queryName.split("._domainkey.").slice(1).join("._domainkey.")
+    : request.query.queryName.replace(/^_acme-challenge\./, "");
+  if (domain.includes("_")) return;
+  const dmarcName = `_dmarc.${domain}`;
+  const dmarcResponse = await request.diagnosticQuery(provider, dmarcName, "TXT", request, queryDns);
+  if (!dmarcResponse) return;
   const dmarcValues = extractRequestedRecords(dmarcResponse?.answer?.map(normalizeRecord) || [], "TXT").map((record) => record.value);
   const dmarcDiagnostics = analyzeDmarcRecords(dmarcName, dmarcValues);
 
@@ -730,9 +806,14 @@ async function enrichTxtResponse(response, provider, request, queryDns) {
 
 async function enrichDnssecResponse(response, provider, request, queryDns) {
   const [dsResponse, dnskeyResponse] = await Promise.all([
-    safeDiagnosticQuery(provider, request.query.queryName, "DS", request, queryDns),
-    safeDiagnosticQuery(provider, request.query.queryName, "DNSKEY", request, queryDns),
+    request.diagnosticQuery(provider, request.query.queryName, "DS", request, queryDns),
+    request.diagnosticQuery(provider, request.query.queryName, "DNSKEY", request, queryDns),
   ]);
+  if (!dsResponse || !dnskeyResponse) {
+    response.dnssec.deepChecksDisabled = true;
+    response.dnssec.note = "Deep DNSSEC diagnostics could not be completed; absence of records was not established.";
+    return;
+  }
   const dsRecords = extractRequestedRecords(dsResponse?.answer?.map(normalizeRecord) || [], "DS");
   const dnskeyRecords = extractRequestedRecords(dnskeyResponse?.answer?.map(normalizeRecord) || [], "DNSKEY");
 
@@ -755,22 +836,37 @@ async function enrichDnssecResponse(response, provider, request, queryDns) {
 
 async function safeDiagnosticQuery(provider, name, type, request, queryDns) {
   try {
-    return await queryWithFallback(provider, name, type, {
+    const result = await queryWithFallback(provider, name, type, {
       queryDns,
       dnssec: request.mode === "single" && request.dnssecRequested,
+      operation: request.operation,
     });
-  } catch {
+    if (result.flags?.tc || !["NOERROR", "NXDOMAIN"].includes(result.rcodeName)) {
+      request.diagnosticFailed(null, name, type);
+      return null;
+    }
+    return result;
+  } catch (error) {
+    request.operation.assertLive();
+    request.diagnosticFailed(error, name, type);
     return null;
   }
 }
 
-async function queryWithFallback(provider, name, type, { queryDns, dnssec }) {
+async function queryWithFallback(provider, name, type, { queryDns, dnssec, operation }) {
+  operation.query();
   let lastError;
 
   for (const endpoint of provider.endpoints) {
     try {
-      return await queryDns(endpoint, name, type, { dnssec, timeoutMs: DNS_TIMEOUT_MS });
+      return await operation.run(() => {
+        operation.checkAttempt();
+        const options = { dnssec, timeoutMs: operation.timeoutMs(), signal: operation.signal, onAttempt: () => operation.attempt() };
+        if (queryDns !== queryDnsUdp) options.onAttempt();
+        return queryDns(endpoint, name, type, options);
+      });
     } catch (error) {
+      operation.assertLive();
       lastError = error;
 
       if (!isFallbackError(error)) {
@@ -786,13 +882,16 @@ function isFallbackError(error) {
   return ["DNS_TIMEOUT", "ENOTFOUND", "ENETUNREACH", "EHOSTUNREACH", "ECONNREFUSED", "EAI_AGAIN"].includes(error?.code);
 }
 
-async function queryDnsUdp(server, name, type, { dnssec, timeoutMs }) {
+async function queryDnsUdp(server, name, type, { dnssec, timeoutMs, signal, onAttempt }) {
+  if (signal.aborted) throw signal.reason;
+  const packet = buildDnsQuery(name, type, dnssec);
   const family = net.isIP(server);
   const socket = dgram.createSocket(family === 6 ? "udp6" : "udp4");
-  const packet = buildDnsQuery(name, type, dnssec);
 
   return new Promise((resolve, reject) => {
     let settled = false;
+    let completion;
+    const aborted = () => fail(signal.reason);
     const timeout = setTimeout(() => {
       fail(Object.assign(new Error("DNS query timed out."), { code: "DNS_TIMEOUT" }));
     }, timeoutMs);
@@ -804,28 +903,105 @@ async function queryDnsUdp(server, name, type, { dnssec, timeoutMs }) {
 
       settled = true;
       clearTimeout(timeout);
-      socket.close();
-      callback(value);
+      signal.removeEventListener("abort", aborted);
+      completion = () => callback(value);
+      socket.removeListener("message", onMessage);
+      // Keep the error handler until close completes to absorb late socket errors.
+      socket.once("close", onClose);
+      try {
+        socket.close();
+      } catch {
+        // A synchronous send failure can leave the socket unbound/already closed.
+        socket.removeListener("error", fail);
+        socket.removeListener("close", onClose);
+        completion();
+      }
     }
 
     function fail(error) {
       finish(reject, error);
     }
 
-    socket.once("message", (message) => {
+    function onClose() {
+      socket.removeListener("error", fail);
+      completion();
+    }
+
+    function onMessage(message, remote) {
+      if (settled) {
+        return;
+      }
+
       try {
+        if (!matchesDnsResponse(message, remote, server, packet)) {
+          return;
+        }
         finish(resolve, parseDnsResponse(message));
-      } catch (error) {
-        fail(error);
+      } catch {
+        // Malformed datagrams do not consume the attempt or extend its deadline.
       }
-    });
-    socket.once("error", fail);
-    socket.send(packet, DNS_PORT, server, (error) => {
-      if (error) {
-        fail(error);
-      }
-    });
+    }
+
+    socket.on("message", onMessage);
+    socket.on("error", fail);
+    signal.addEventListener("abort", aborted, { once: true });
+    if (signal.aborted) { aborted(); return; }
+    try {
+      onAttempt();
+      socket.send(packet, DNS_PORT, server, (error) => {
+        if (error) {
+          fail(error);
+        }
+      });
+    } catch (error) {
+      fail(error);
+    }
   });
+}
+
+function matchesDnsResponse(message, remote, server, query) {
+  const family = net.isIP(server);
+  if (remote?.port !== DNS_PORT || net.isIP(remote.address) !== family
+    || (family === 6 ? expandIpv6(remote.address) !== expandIpv6(server) : remote.address !== server)) {
+    return false;
+  }
+
+  if (message.length < 12 || message.readUInt16BE(0) !== query.readUInt16BE(0)) {
+    return false;
+  }
+  const flags = message.readUInt16BE(2);
+  if (!(flags & 0x8000) || (flags & 0x7800) || message.readUInt16BE(4) !== 1) {
+    return false;
+  }
+
+  // The first question has no preceding name to reference with compression.
+  // Compare label bytes, folding only ASCII case; string decoding can lose bits
+  // or confuse an embedded dot with a label separator.
+  const fold = (byte) => byte >= 65 && byte <= 90 ? byte + 32 : byte;
+  let offset = 12;
+  while (true) {
+    if (offset >= message.length || offset >= query.length) {
+      return false;
+    }
+    const length = message[offset];
+    if (length > 63 || length !== query[offset] || offset + 1 + length > message.length) {
+      return false;
+    }
+    offset += 1;
+    if (length === 0) {
+      break;
+    }
+    for (let index = 0; index < length; index += 1) {
+      if (fold(message[offset + index]) !== fold(query[offset + index])) {
+        return false;
+      }
+    }
+    offset += length;
+  }
+
+  return offset + 4 <= message.length
+    && message.readUInt16BE(offset) === query.readUInt16BE(offset)
+    && message.readUInt16BE(offset + 2) === 1;
 }
 
 function buildDnsQuery(name, type, dnssec) {
@@ -880,6 +1056,7 @@ function encodeName(name) {
 }
 
 function parseDnsResponse(buffer) {
+  if (buffer.length < 12) throw new Error("Truncated DNS header.");
   const id = buffer.readUInt16BE(0);
   const flagsValue = buffer.readUInt16BE(2);
   const qdCount = buffer.readUInt16BE(4);
@@ -925,7 +1102,10 @@ function parseDnsResponse(buffer) {
     additional.push(parsed.record);
   }
 
-  const rcode = flagsValue & 0x000f;
+  if (offset !== buffer.length) throw new Error("Unexpected DNS trailing data.");
+  const optRecords = additional.filter((record) => record.type === "41");
+  if (optRecords.length > 1) throw new Error("Multiple DNS OPT records.");
+  const rcode = (flagsValue & 0x000f) | ((optRecords[0]?.ttl >>> 24 || 0) << 4);
 
   return {
     id,
@@ -959,6 +1139,9 @@ function readRecord(buffer, offset) {
   const rdLength = buffer.readUInt16BE(offset);
   offset += 2;
   const rdataOffset = offset;
+  if (rdataOffset + rdLength > buffer.length) {
+    throw new Error("Truncated DNS record data.");
+  }
   const type = CODE_TO_TYPE[typeCode] || String(typeCode);
   const record = {
     name: parsedName.name,
@@ -975,6 +1158,16 @@ function readRecord(buffer, offset) {
 }
 
 function parseRdata(buffer, type, offset, length) {
+  const end = offset + length;
+  const minimum = { TXT: 1, MX: 3, SOA: 22, SRV: 7, CAA: 2, DS: 4, DNSKEY: 4, RRSIG: 19, NSEC: 1, NSEC3: 6 }[type];
+  if ((minimum && length < minimum) || (type === "A" && length !== 4) || (type === "AAAA" && length !== 16)) {
+    throw new Error("Invalid DNS record length.");
+  }
+  const nameAt = (start, exact = false) => {
+    const name = readName(buffer, start, 0, end);
+    if (exact && name.offset !== end) throw new Error("Invalid DNS name data length.");
+    return name;
+  };
   if (type === "A" && length === 4) {
     return Array.from(buffer.subarray(offset, offset + length)).join(".");
   }
@@ -984,13 +1177,13 @@ function parseRdata(buffer, type, offset, length) {
   }
 
   if (["NS", "CNAME", "PTR"].includes(type)) {
-    return readName(buffer, offset).name;
+    return nameAt(offset, true).name;
   }
 
   if (type === "MX") {
     return {
       preference: buffer.readUInt16BE(offset),
-      exchange: readName(buffer, offset + 2).name,
+      exchange: nameAt(offset + 2, true).name,
     };
   }
 
@@ -1002,6 +1195,7 @@ function parseRdata(buffer, type, offset, length) {
     while (cursor < end) {
       const txtLength = buffer.readUInt8(cursor);
       cursor += 1;
+      if (cursor + txtLength > end) throw new Error("Truncated DNS TXT chunk.");
       values.push(buffer.subarray(cursor, cursor + txtLength).toString("utf8"));
       cursor += txtLength;
     }
@@ -1010,9 +1204,10 @@ function parseRdata(buffer, type, offset, length) {
   }
 
   if (type === "SOA") {
-    const mname = readName(buffer, offset);
-    const rname = readName(buffer, mname.offset);
+    const mname = nameAt(offset);
+    const rname = nameAt(mname.offset);
     let cursor = rname.offset;
+    if (cursor + 20 !== end) throw new Error("Invalid DNS SOA length.");
 
     return {
       mname: mname.name,
@@ -1030,11 +1225,12 @@ function parseRdata(buffer, type, offset, length) {
       priority: buffer.readUInt16BE(offset),
       weight: buffer.readUInt16BE(offset + 2),
       port: buffer.readUInt16BE(offset + 4),
-      target: readName(buffer, offset + 6).name,
+      target: nameAt(offset + 6, true).name,
     };
   }
 
   if (type === "CAA") {
+    if (offset + 2 + buffer.readUInt8(offset + 1) > end) throw new Error("Invalid DNS CAA tag length.");
     return {
       flags: buffer.readUInt8(offset),
       tag: buffer.subarray(offset + 2, offset + 2 + buffer.readUInt8(offset + 1)).toString("ascii"),
@@ -1061,7 +1257,7 @@ function parseRdata(buffer, type, offset, length) {
   }
 
   if (type === "RRSIG") {
-    const signer = readName(buffer, offset + 18);
+    const signer = nameAt(offset + 18);
     return {
       typeCovered: CODE_TO_TYPE[buffer.readUInt16BE(offset)] || String(buffer.readUInt16BE(offset)),
       algorithm: buffer.readUInt8(offset + 2),
@@ -1076,7 +1272,7 @@ function parseRdata(buffer, type, offset, length) {
   }
 
   if (type === "NSEC") {
-    const next = readName(buffer, offset);
+    const next = nameAt(offset);
     return {
       nextDomainName: next.name,
       typeBitMaps: buffer.subarray(next.offset, offset + length).toString("hex"),
@@ -1086,7 +1282,9 @@ function parseRdata(buffer, type, offset, length) {
   if (type === "NSEC3") {
     const saltLength = buffer.readUInt8(offset + 4);
     const hashLengthOffset = offset + 5 + saltLength;
+    if (hashLengthOffset >= end) throw new Error("Invalid DNS NSEC3 salt length.");
     const hashLength = buffer.readUInt8(hashLengthOffset);
+    if (hashLengthOffset + 1 + hashLength > end) throw new Error("Invalid DNS NSEC3 hash length.");
 
     return {
       hashAlgorithm: buffer.readUInt8(offset),
@@ -1107,7 +1305,7 @@ function parseRdata(buffer, type, offset, length) {
   return buffer.subarray(offset, offset + length).toString("base64");
 }
 
-function readName(buffer, offset, depth = 0) {
+function readName(buffer, offset, depth = 0, end = buffer.length) {
   if (depth > 20) {
     throw new Error("DNS compression pointer depth exceeded.");
   }
@@ -1118,10 +1316,15 @@ function readName(buffer, offset, depth = 0) {
   let nextOffset = offset;
 
   while (true) {
+    if (cursor >= end) throw new Error("Truncated DNS name.");
     const length = buffer.readUInt8(cursor);
 
     if ((length & 0xc0) === 0xc0) {
+      if (cursor + 2 > end) throw new Error("Truncated DNS pointer.");
       const pointer = ((length & 0x3f) << 8) | buffer.readUInt8(cursor + 1);
+      if (pointer < 12 || pointer >= cursor) {
+        throw new Error("Invalid DNS compression pointer.");
+      }
       const pointed = readName(buffer, pointer, depth + 1);
       labels.push(pointed.name);
       cursor += 2;
@@ -1136,13 +1339,20 @@ function readName(buffer, offset, depth = 0) {
       break;
     }
 
+    if (length > 63 || cursor + 1 + length > end) {
+      throw new Error("Invalid DNS label.");
+    }
     cursor += 1;
-    labels.push(buffer.subarray(cursor, cursor + length).toString("ascii"));
+    labels.push(buffer.subarray(cursor, cursor + length).toString("latin1"));
     cursor += length;
   }
 
+  const name = labels.filter(Boolean).join(".");
+  if (name.length > 253) {
+    throw new Error("DNS name length exceeded.");
+  }
   return {
-    name: labels.filter(Boolean).join("."),
+    name,
     offset: jumped ? nextOffset : cursor,
   };
 }
@@ -1198,6 +1408,7 @@ function extractRequestedRecords(records, recordType) {
 }
 
 function classifyResponse(request, dnsResponse, records, answer) {
+  if (dnsResponse.flags?.tc) return "incomplete";
   if (dnsResponse.rcodeName === "NXDOMAIN") {
     return "nxdomain";
   }
@@ -1209,6 +1420,10 @@ function classifyResponse(request, dnsResponse, records, answer) {
   if (dnsResponse.rcodeName === "REFUSED") {
     return "refused";
   }
+
+  if (dnsResponse.rcodeName === "FORMERR") return "formerr";
+  if (dnsResponse.rcodeName === "NOTIMP") return "notimp";
+  if (dnsResponse.rcodeName !== "NOERROR") return "rcode-error";
 
   if (hasSinkholeAddress(records)) {
     return "possible-sinkhole";
@@ -1228,12 +1443,12 @@ function classifyResponse(request, dnsResponse, records, answer) {
 }
 
 function classifyBurstStatus(results, fingerprints) {
+  if (results.some((result) => !result.ok)) {
+    if (results.some((result) => result.ok)) return "partial-failure";
+    return results.some((result) => result.status === "incomplete") ? "incomplete" : "resolver-error";
+  }
   if (results.some((result) => result.status === "possible-sinkhole")) {
     return "possible-sinkhole";
-  }
-
-  if (results.some((result) => ["refused", "servfail", "possible-dnssec-failure"].includes(result.status))) {
-    return "possible-filtering";
   }
 
   if (fingerprints.size > 1) {
@@ -1249,6 +1464,12 @@ function classifyBurstStatus(results, fingerprints) {
   }
 
   return results.some((result) => result.status === "ok") ? "ok" : "resolver-error";
+}
+
+function isCacheableDiagnostic(result) {
+  return result.ok === true
+    && !result.diagnostics.some((item) => item.id === "optional_diagnostics_incomplete")
+    && (!result.providers || result.providers.every(isCacheableDiagnostic));
 }
 
 function answerFingerprint(records) {
@@ -1538,20 +1759,18 @@ function withoutCacheMetadata(response) {
 }
 
 function enforceRateLimit(clientIp, cost, now) {
-  const bucket = rateBuckets.get(clientIp) || [];
-  const fresh = bucket.filter((entry) => now - entry.time < RATE_WINDOW_HOUR_MS);
+  const error = () => new DnsCheckError("RATE_LIMITED", "Too many live DNS checks were made recently. Please try again later.");
+  const fresh = rateBuckets.prepare(clientIp, now, error);
   const hourTotal = fresh.reduce((total, entry) => total + entry.cost, 0);
   const fiveMinuteTotal = fresh
     .filter((entry) => now - entry.time < RATE_WINDOW_FIVE_MINUTES_MS)
     .reduce((total, entry) => total + entry.cost, 0);
 
   if (fiveMinuteTotal + cost > RATE_LIMIT_FIVE_MINUTES || hourTotal + cost > RATE_LIMIT_HOUR) {
-    rateBuckets.set(clientIp, fresh);
-    throw new DnsCheckError("RATE_LIMITED", "Too many live DNS checks were made recently. Please try again later.");
+    throw error();
   }
 
-  fresh.push({ time: now, cost });
-  rateBuckets.set(clientIp, fresh);
+  rateBuckets.commit(clientIp, fresh, cost, now, error);
 }
 
 function formatQuery(request) {

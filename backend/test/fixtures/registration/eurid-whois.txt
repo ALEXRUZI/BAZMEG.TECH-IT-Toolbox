@@ -1,0 +1,24 @@
+Domain: example.eu
+Script: LATIN
+
+Registrant:
+        NOT DISCLOSED!
+        Visit www.eurid.eu for the web-based WHOIS.
+
+On-site(s):
+        NOT DISCLOSED!
+
+Reseller:
+        Organisation: Fixture Reseller Ltd
+        Email: reseller@example.test
+
+Registrar:
+        Name: Fixture Registrar Ltd
+        Website: https://registrar.example.test
+
+Name servers:
+        ns1.example.test
+        ns2.example.test
+
+Keys:
+        flags:KSK protocol:3 algorithm:RSA_SHA256 pubKey:FIXTURE

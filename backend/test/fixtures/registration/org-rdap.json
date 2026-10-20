@@ -1,0 +1,177 @@
+{
+  "rdapConformance": [
+    "rdap_level_0",
+    "icann_rdap_response_profile_1",
+    "icann_rdap_technical_implementation_guide_1",
+    "redacted"
+  ],
+  "notices": [
+    {
+      "title": "Sanitized notice",
+      "description": [
+        "Fixture contains synthetic contact values."
+      ]
+    }
+  ],
+  "ldhName": "example.org",
+  "unicodeName": "example.org",
+  "nameservers": [
+    {
+      "ldhName": "katelyn.ns.cloudflare.com",
+      "unicodeName": "katelyn.ns.cloudflare.com",
+      "objectClassName": "nameserver",
+      "handle": "FIXTURE-1",
+      "status": [
+        "associated"
+      ]
+    },
+    {
+      "ldhName": "mitch.ns.cloudflare.com",
+      "unicodeName": "mitch.ns.cloudflare.com",
+      "objectClassName": "nameserver",
+      "handle": "FIXTURE-2",
+      "status": [
+        "associated"
+      ]
+    }
+  ],
+  "secureDNS": {
+    "delegationSigned": true,
+    "maxSigLife": 1,
+    "dsData": [
+      {
+        "keyTag": 2371,
+        "algorithm": 13,
+        "digest": "169521AB547DF3A14C1719A0F0D5289278E22682B53CE9F22D379B922125BF98",
+        "digestType": 2
+      }
+    ]
+  },
+  "redacted": [
+    {
+      "name": {
+        "type": "Registry Domain ID"
+      },
+      "prePath": "$.handle",
+      "pathLang": "jsonpath",
+      "method": "removal"
+    }
+  ],
+  "objectClassName": "domain",
+  "status": [
+    "server delete prohibited",
+    "server transfer prohibited",
+    "server update prohibited"
+  ],
+  "events": [
+    {
+      "eventAction": "expiration",
+      "eventDate": "2027-08-30T04:00:00Z"
+    },
+    {
+      "eventAction": "registration",
+      "eventDate": "1995-08-31T04:00:00Z"
+    },
+    {
+      "eventAction": "last changed",
+      "eventDate": "2026-10-14T04:00:57.481Z"
+    },
+    {
+      "eventAction": "last update of RDAP database",
+      "eventDate": "2026-10-19T19:16:48.811Z"
+    }
+  ],
+  "entities": [
+    {
+      "vcardArray": [
+        "vcard",
+        [
+          [
+            "version",
+            {},
+            "text",
+            "4.0"
+          ],
+          [
+            "fn",
+            {},
+            "text",
+            "Fixture registrar"
+          ]
+        ]
+      ],
+      "roles": [
+        "registrar"
+      ],
+      "publicIds": [
+        {
+          "type": "IANA Registrar ID",
+          "identifier": "4242"
+        }
+      ],
+      "objectClassName": "entity",
+      "handle": "FIXTURE-3",
+      "entities": [
+        {
+          "vcardArray": [
+            "vcard",
+            [
+              [
+                "version",
+                {},
+                "text",
+                "4.0"
+              ],
+              [
+                "fn",
+                {},
+                "text",
+                ""
+              ],
+              [
+                "tel",
+                {
+                  "type": "voice"
+                },
+                "uri",
+                "tel:+1-202-555-0100"
+              ],
+              [
+                "email",
+                {},
+                "text",
+                "contact@example.test"
+              ]
+            ]
+          ],
+          "roles": [
+            "abuse"
+          ],
+          "objectClassName": "entity"
+        }
+      ],
+      "links": [
+        {
+          "value": "https://example.test/evidence",
+          "rel": "self",
+          "href": "https://example.test/evidence",
+          "type": "application/rdap+json"
+        },
+        {
+          "value": "",
+          "rel": "about",
+          "href": "https://example.test/evidence",
+          "type": "application/rdap+json"
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "value": "https://example.test/evidence",
+      "rel": "self",
+      "href": "https://example.test/evidence",
+      "type": "application/rdap+json"
+    }
+  ]
+}

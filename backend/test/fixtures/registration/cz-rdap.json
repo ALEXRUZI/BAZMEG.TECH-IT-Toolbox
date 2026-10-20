@@ -1,0 +1,327 @@
+{
+  "objectClassName": "domain",
+  "handle": "FIXTURE-1",
+  "ldhName": "example.cz",
+  "links": [
+    {
+      "value": "https://example.test/evidence",
+      "rel": "self",
+      "href": "https://example.test/evidence",
+      "type": "application/rdap+json"
+    }
+  ],
+  "events": [
+    {
+      "eventAction": "registration",
+      "eventDate": "1997-10-30T00:00:00+00:00"
+    },
+    {
+      "eventAction": "expiration",
+      "eventDate": "2027-03-14T23:00:00+00:00"
+    },
+    {
+      "eventAction": "last changed",
+      "eventDate": "2020-11-17T13:25:52+00:00"
+    },
+    {
+      "eventAction": "transfer",
+      "eventDate": "2007-02-28T13:55:00+00:00"
+    }
+  ],
+  "status": [
+    "server transfer prohibited"
+  ],
+  "nameservers": [
+    {
+      "objectClassName": "nameserver",
+      "ldhName": "a.ns.nic.cz",
+      "links": [
+        {
+          "value": "https://example.test/evidence",
+          "rel": "self",
+          "href": "https://example.test/evidence",
+          "type": "application/rdap+json"
+        }
+      ],
+      "ipAddresses": {
+        "v4": [
+          "194.0.12.1"
+        ],
+        "v6": [
+          "2001:678:f::1"
+        ]
+      },
+      "handle": "FIXTURE-2"
+    },
+    {
+      "objectClassName": "nameserver",
+      "ldhName": "b.ns.nic.cz",
+      "links": [
+        {
+          "value": "https://example.test/evidence",
+          "rel": "self",
+          "href": "https://example.test/evidence",
+          "type": "application/rdap+json"
+        }
+      ],
+      "ipAddresses": {
+        "v4": [
+          "194.0.13.1"
+        ],
+        "v6": [
+          "2001:678:10::1"
+        ]
+      },
+      "handle": "FIXTURE-3"
+    },
+    {
+      "objectClassName": "nameserver",
+      "ldhName": "d.ns.nic.cz",
+      "links": [
+        {
+          "value": "https://example.test/evidence",
+          "rel": "self",
+          "href": "https://example.test/evidence",
+          "type": "application/rdap+json"
+        }
+      ],
+      "ipAddresses": {
+        "v4": [
+          "193.29.206.1"
+        ],
+        "v6": [
+          "2001:678:1::1"
+        ]
+      },
+      "handle": "FIXTURE-4"
+    }
+  ],
+  "secureDNS": {
+    "zoneSigned": true,
+    "delegationSigned": true,
+    "keyData": [
+      {
+        "flags": 257,
+        "protocol": 3,
+        "algorithm": 13,
+        "publicKey": "Hpu4xfZJ43G2gen4cJOZ4DFhaXFaMxLPa+dBceqkbdIaqADX9JLHW/CNpPV+GtgAMc2kHgNEJTaSAUhYG41tvQ=="
+      }
+    ],
+    "maxSigLife": 1209600
+  },
+  "entities": [
+    {
+      "objectClassName": "entity",
+      "handle": "FIXTURE-5",
+      "roles": [
+        "registrant"
+      ],
+      "links": [
+        {
+          "value": "https://example.test/evidence",
+          "rel": "self",
+          "href": "https://example.test/evidence",
+          "type": "application/rdap+json"
+        }
+      ]
+    },
+    {
+      "objectClassName": "entity",
+      "handle": "FIXTURE-6",
+      "roles": [
+        "administrative"
+      ],
+      "links": [
+        {
+          "value": "https://example.test/evidence",
+          "rel": "self",
+          "href": "https://example.test/evidence",
+          "type": "application/rdap+json"
+        }
+      ]
+    },
+    {
+      "objectClassName": "entity",
+      "handle": "FIXTURE-7",
+      "roles": [
+        "administrative"
+      ],
+      "links": [
+        {
+          "value": "https://example.test/evidence",
+          "rel": "self",
+          "href": "https://example.test/evidence",
+          "type": "application/rdap+json"
+        }
+      ]
+    },
+    {
+      "objectClassName": "entity",
+      "handle": "FIXTURE-8",
+      "vcardArray": [
+        "vcard",
+        [
+          [
+            "version",
+            {},
+            "text",
+            "4.0"
+          ],
+          [
+            "fn",
+            {},
+            "text",
+            "Fixture registrar"
+          ],
+          [
+            "adr",
+            {
+              "type": ""
+            },
+            "text",
+            [
+              "",
+              "",
+              "Example street",
+              "Example City",
+              "",
+              "00000",
+              "ZZ"
+            ]
+          ],
+          [
+            "tel",
+            {
+              "type": [
+                "voice"
+              ]
+            },
+            "uri",
+            "tel:+1-202-555-0100"
+          ]
+        ]
+      ],
+      "links": [
+        {
+          "value": "https://example.test/evidence",
+          "rel": "self",
+          "href": "https://example.test/evidence",
+          "type": "application/rdap+json"
+        }
+      ],
+      "roles": [
+        "registrar"
+      ]
+    }
+  ],
+  "fred_nsset": {
+    "objectClassName": "fred_nsset",
+    "handle": "FIXTURE-9",
+    "links": [
+      {
+        "value": "https://example.test/evidence",
+        "rel": "self",
+        "href": "https://example.test/evidence",
+        "type": "application/rdap+json"
+      }
+    ],
+    "nameservers": [
+      {
+        "objectClassName": "nameserver",
+        "ldhName": "a.ns.nic.cz",
+        "links": [
+          {
+            "value": "https://example.test/evidence",
+            "rel": "self",
+            "href": "https://example.test/evidence",
+            "type": "application/rdap+json"
+          }
+        ],
+        "ipAddresses": {
+          "v4": [
+            "194.0.12.1"
+          ],
+          "v6": [
+            "2001:678:f::1"
+          ]
+        },
+        "handle": "FIXTURE-10"
+      },
+      {
+        "objectClassName": "nameserver",
+        "ldhName": "b.ns.nic.cz",
+        "links": [
+          {
+            "value": "https://example.test/evidence",
+            "rel": "self",
+            "href": "https://example.test/evidence",
+            "type": "application/rdap+json"
+          }
+        ],
+        "ipAddresses": {
+          "v4": [
+            "194.0.13.1"
+          ],
+          "v6": [
+            "2001:678:10::1"
+          ]
+        },
+        "handle": "FIXTURE-11"
+      },
+      {
+        "objectClassName": "nameserver",
+        "ldhName": "d.ns.nic.cz",
+        "links": [
+          {
+            "value": "https://example.test/evidence",
+            "rel": "self",
+            "href": "https://example.test/evidence",
+            "type": "application/rdap+json"
+          }
+        ],
+        "ipAddresses": {
+          "v4": [
+            "193.29.206.1"
+          ],
+          "v6": [
+            "2001:678:1::1"
+          ]
+        },
+        "handle": "FIXTURE-12"
+      }
+    ]
+  },
+  "fred_keyset": {
+    "objectClassName": "fred_keyset",
+    "handle": "FIXTURE-13",
+    "links": [
+      {
+        "value": "https://example.test/evidence",
+        "rel": "self",
+        "href": "https://example.test/evidence",
+        "type": "application/rdap+json"
+      }
+    ],
+    "dns_keys": [
+      {
+        "flags": 257,
+        "protocol": 3,
+        "algorithm": 13,
+        "publicKey": "Hpu4xfZJ43G2gen4cJOZ4DFhaXFaMxLPa+dBceqkbdIaqADX9JLHW/CNpPV+GtgAMc2kHgNEJTaSAUhYG41tvQ=="
+      }
+    ]
+  },
+  "rdapConformance": [
+    "rdap_level_0",
+    "fred_version_0"
+  ],
+  "notices": [
+    {
+      "title": "Sanitized notice",
+      "description": [
+        "Fixture contains synthetic contact values."
+      ]
+    }
+  ],
+  "port43": "whois.nic.cz"
+}

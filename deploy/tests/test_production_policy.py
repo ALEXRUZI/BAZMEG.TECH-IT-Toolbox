@@ -26,11 +26,13 @@ artifact = module('pages-artifact')
 cloudflare = module('verify-cloudflare')
 health = module('verify-pages-health')
 SHA = 'a' * 40
+IDENTITY = dict(release=f'production-7-17-{SHA}', sequence='7', commit=SHA,
+                archiveSha256='b' * 64, manifestSha256='c' * 64, keyId='test-key')
 
 
 class ProductionPolicyTests(unittest.TestCase):
     def test_owner_dispatch_can_self_approve_and_all_drift_fails_closed(self):
-        environment = {'protection_rules': [{'type': 'required_reviewers',
+        environment = {'can_admins_bypass': False, 'protection_rules': [{'type': 'required_reviewers',
             'prevent_self_review': False, 'reviewers': [
                 {'type': 'User', 'reviewer': {'login': 'ALEXRUZI'}}]}],
             'deployment_branch_policy': {'protected_branches': False, 'custom_branch_policies': True}}
@@ -43,6 +45,7 @@ class ProductionPolicyTests(unittest.TestCase):
         gate.verify(environment, branches, main, context)
         mutations = [
             lambda e, b, m, c: e.clear(),
+            lambda e, b, m, c: e.pop('can_admins_bypass'),
             lambda e, b, m, c: e['protection_rules'].append({'type': 'custom_deployment_protection_rule'}),
             lambda e, b, m, c: e['protection_rules'][0].update(prevent_self_review=True),
             lambda e, b, m, c: e['protection_rules'][0].pop('prevent_self_review'),
@@ -57,6 +60,8 @@ class ProductionPolicyTests(unittest.TestCase):
             lambda e, b, m, c: b.update(branch_policies=[]),
             lambda e, b, m, c: m['object'].update(sha='b' * 40),
         ]
+        for value in (True, None, 0, 1, 'false', '', [], {}):
+            mutations.append(lambda e, b, m, c, v=value: e.update(can_admins_bypass=v))
         for key, value in (('GITHUB_REPOSITORY', gate.REPOSITORY + '-dev'),
                 ('GITHUB_REF', 'refs/tags/main'), ('GITHUB_EVENT_NAME', 'push'),
                 ('GITHUB_ACTOR', 'other'), ('GITHUB_TRIGGERING_ACTOR', 'other'),
@@ -70,15 +75,15 @@ class ProductionPolicyTests(unittest.TestCase):
 
     def test_workflow_secret_boundaries_and_backend_first_order(self):
         text = (ROOT / '.github/workflows/backend-production.yml').read_text()
-        build, deployment = text.split('\n  deploy-backend:\n', 1)
+        build, deployment = text.split('\n  publish-backend:\n', 1)
         backend, frontend = deployment.split('\n  deploy-frontend:\n', 1)
         self.assertNotIn('secrets.', build)
         self.assertNotIn('CLOUDFLARE_API_TOKEN', backend)
         self.assertNotIn('PRODUCTION_BACKEND_SSH_KEY', frontend)
         self.assertNotIn('npm ', backend)
         self.assertIn('needs: [validate-package, build-frontend]', backend)
-        self.assertIn('verify-pages-health.py', backend)
-        self.assertIn('needs: [deploy-backend, build-frontend]', frontend)
+        self.assertIn('wait-backend.py', backend)
+        self.assertIn('needs: [accept-backend, build-frontend]', frontend)
         self.assertEqual(text.count('environment: production'), 2)
         self.assertIn('environment: production-pages', frontend)
         self.assertIn('--environment production-pages', frontend)
@@ -93,7 +98,7 @@ class ProductionPolicyTests(unittest.TestCase):
         self.assertIn('--no-bundle', frontend)
         upload = frontend.split('- name: Deploy only verified assets')[1]
         self.assertIn('PRODUCTION_PAGES_URL: ${{ vars.PRODUCTION_PAGES_URL }}', upload)
-        self.assertIn('EXPECTED_BACKEND_DIGEST: ${{ needs.deploy-backend.outputs.digest }}', upload)
+        self.assertIn('EXPECTED_BACKEND_DIGEST: ${{ needs.accept-backend.outputs.digest }}', upload)
         self.assertLess(upload.index('python3 -I deploy/verify-pages-health.py'),
                         upload.index('"$tool" pages deploy'))
         self.assertIn('cd "$RUNNER_TEMP/toolbox-pages"', frontend)
@@ -177,7 +182,10 @@ class ProductionPolicyTests(unittest.TestCase):
         with patch.object(health, 'build_opener') as opener:
             for origin in ('http://example.test', 'https://user:pass@example.test',
                            'https://example.test/path', 'https://example.test?x=1', '',
-                           'https://example.test:bad', 'https://example.test:8443', ' https://example.test'):
+                           'https://example.test:bad', 'https://example.test:8443', ' https://example.test',
+                           'https://127.0.0.1', 'https://10.0.0.1', 'https://[::1]',
+                           'https://127.1', 'https://2130706433', 'https://localhost',
+                           'https://backend.internal', 'https://backend.local'):
                 with self.subTest(origin=origin), self.assertRaises(ValueError):
                     health.verify(origin, SHA, 'b' * 64)
             opener.assert_not_called()
@@ -207,7 +215,8 @@ class ProductionPolicyTests(unittest.TestCase):
         index = b'<html>disposable fixture</html>'
         responses = [
             (200, {'ok': True, 'message': 'toolbox API reachable'}),
-            (200, {'ok': True, 'revision': SHA, 'archiveSha256': digest, 'apiContract': 'toolbox-api-v1'}),
+            (200, {'ok': True, 'revision': SHA, 'archiveSha256': digest, 'apiContract': 'toolbox-api-v1',
+                   'authorization': IDENTITY}),
             *[(400, {'ok': False, 'error': {'code': code, 'message': message}, **extra})
               for code, message, extra in [
                 ('INVALID_MODE', 'Choose single or burst DNS check mode.', {}),
@@ -224,7 +233,8 @@ class ProductionPolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='toolbox-live-probes-') as temp:
             marker = Path(temp) / 'verified.json'
             marker.write_text(json.dumps({'sha': SHA, 'files': {'index.html': hashlib.sha256(index).hexdigest()}}))
-            for scenario in ('valid', 'revision', 'digest', 'contract', 'endpoint', 'health', 'frontend', 'oversized'):
+            for scenario in ('valid', 'revision', 'digest', 'contract', 'endpoint', 'health', 'frontend', 'oversized',
+                             'old-authorization', 'different-run', 'sequence', 'manifest', 'key', 'missing', 'null'):
                 values = copy.deepcopy(responses)
                 if scenario == 'revision': values[1][1]['revision'] = 'c' * 40
                 elif scenario == 'digest': values[1][1]['archiveSha256'] = 'c' * 64
@@ -232,30 +242,78 @@ class ProductionPolicyTests(unittest.TestCase):
                 elif scenario == 'endpoint': values[4] = (404, {})
                 elif scenario == 'health': values[0] = (503, {})
                 elif scenario == 'oversized': values[0] = (200, {'data': 'x' * 5000})
+                elif scenario == 'old-authorization':
+                    values[1][1]['authorization'].update(release=f'production-6-16-{SHA}', sequence='6')
+                elif scenario == 'different-run': values[1][1]['authorization']['release'] = f'production-7-18-{SHA}'
+                elif scenario == 'sequence': values[1][1]['authorization']['sequence'] = '8'
+                elif scenario == 'manifest': values[1][1]['authorization']['manifestSha256'] = 'd' * 64
+                elif scenario == 'key': values[1][1]['authorization']['keyId'] = 'other-key'
+                elif scenario == 'missing': del values[1][1]['authorization']
+                elif scenario == 'null': values[1][1]['authorization'] = None
                 outputs = [Response(status, json.dumps(body).encode()) for status, body in values]
                 outputs.append(Response(200, b'wrong revision' if scenario == 'frontend' else index))
                 with patch.object(health, 'build_opener') as opener:
                     opener.return_value.open.side_effect = outputs
                     if scenario == 'valid':
-                        health.verify('https://pages.example.test', SHA, digest, marker)
+                        health.verify('https://pages.example.test', SHA, digest, marker, identity=IDENTITY)
                         self.assertEqual(opener.return_value.open.call_count, 7)
                     else:
                         with self.subTest(scenario=scenario), self.assertRaises(ValueError):
-                            health.verify('https://pages.example.test', SHA, digest, marker)
+                            health.verify('https://pages.example.test', SHA, digest, marker, identity=IDENTITY)
 
-    def test_missing_production_credentials_fail_before_ssh(self):
+    def test_workflow_outputs_validate_current_signed_authorization_before_network(self):
+        context = dict(GITHUB_SHA=SHA, GITHUB_RUN_NUMBER='7', GITHUB_RUN_ID='17',
+                       EXPECTED_AUTHORIZATION_SEQUENCE='7', EXPECTED_RELEASE_ID=IDENTITY['release'],
+                       EXPECTED_BACKEND_DIGEST=IDENTITY['archiveSha256'],
+                       EXPECTED_MANIFEST_SHA256=IDENTITY['manifestSha256'], EXPECTED_SIGNING_KEY_ID='test-key')
+        def validate(values):
+            identity = health.expected_authorization(values)
+            health.validate_identity(identity, SHA, 'b' * 64, values['GITHUB_RUN_ID'])
+        validate(context)
+        for field, bad in [('EXPECTED_RELEASE_ID', f'production-7-18-{SHA}'),
+                           ('EXPECTED_AUTHORIZATION_SEQUENCE', '6'), ('EXPECTED_AUTHORIZATION_SEQUENCE', '07'),
+                           ('EXPECTED_AUTHORIZATION_SEQUENCE', str(2**63)),
+                           ('EXPECTED_MANIFEST_SHA256', ''), ('EXPECTED_MANIFEST_SHA256', 'X' * 64),
+                           ('EXPECTED_SIGNING_KEY_ID', 'bad\noutput'), ('EXPECTED_BACKEND_DIGEST', 'c' * 64)]:
+            with self.subTest(field=field, bad=bad), self.assertRaises(ValueError):
+                validate({**context, field: bad})
+        for identity in (None, {}, {**IDENTITY, 'sequence': 7}, {**IDENTITY, 'manifestSha256': 'bad'}):
+            with patch.object(health, 'build_opener') as opener, self.assertRaises(ValueError):
+                health.verify('https://pages.example.test', SHA, 'b' * 64, identity=identity)
+            opener.assert_not_called()
+
+    def test_pages_cannot_bypass_exact_authorization_wait_or_preupload_recheck(self):
         text = (ROOT / '.github/workflows/backend-production.yml').read_text()
-        code = text.split(': "${DEPLOY_HOST:?')[1].split('          [[ "$GITHUB_SHA"')[0]
-        code = ': "${DEPLOY_HOST:?' + code
-        code = '\n'.join(line[10:] if line.startswith('          ') else line for line in code.splitlines())
-        names = ['DEPLOY_HOST', 'DEPLOY_USER', 'DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS']
-        for missing in names:
-            env = {key: value for key, value in os.environ.items() if key not in names}
-            env.update({key: 'disposable-fixture' for key in names if key != missing})
-            result = subprocess.run(['bash', '-Eeuo', 'pipefail', '-c', code], env=env, capture_output=True)
-            with self.subTest(missing=missing):
-                self.assertNotEqual(result.returncode, 0)
-                self.assertNotIn(b'disposable-fixture', result.stderr)
+        publish, rest = text.split('\n  accept-backend:\n')
+        acceptance, frontend = rest.split('\n  deploy-frontend:\n')
+        self.assertIn('needs: [accept-backend, build-frontend]', frontend)
+        self.assertNotIn('always()', frontend)
+        self.assertNotIn('continue-on-error', text)
+        self.assertIn('run: python3 -I deploy/wait-backend.py', acceptance)
+        for output in ('release', 'sequence', 'manifest', 'key'):
+            self.assertIn(f'{output}: ${{{{ needs.publish-backend.outputs.{output} }}}}', acceptance)
+            self.assertIn(f'${{{{ steps.sign.outputs.', publish)
+            self.assertEqual(frontend.count(f'${{{{ needs.accept-backend.outputs.{output} }}}}'), 2)
+        self.assertLess(frontend.index('verify-cloudflare.py before'), frontend.index('deploy/verify-pages-health.py'))
+        self.assertLess(frontend.index('deploy/verify-pages-health.py'), frontend.index('"$tool" pages deploy'))
+
+    def test_pull_only_publication_secret_and_permissions_boundary(self):
+        text = (ROOT / '.github/workflows/backend-production.yml').read_text()
+        for forbidden in ('PRODUCTION_BACKEND_SSH', 'scp ', 'ssh ', 'sftp ', 'sudo ', 'DEPLOY_HOST'):
+            self.assertNotIn(forbidden, text)
+        self.assertEqual(text.count('contents: write'), 1)
+        self.assertEqual(text.count('secrets.PRODUCTION_RELEASE_SIGNING_KEY'), 1)
+        signing = text.split('\n  publish-backend:\n')[1].split('\n  accept-backend:\n')[0]
+        self.assertIn('environment: production', signing)
+        self.assertIn('--environment production', signing)
+        self.assertIn('gh release create', signing)
+        self.assertIn('independent-backend.tar.gz', signing)
+        self.assertIn('"$snapshot" == "$EXPECTED_SNAPSHOT"', signing)
+        self.assertLess(signing.index('independent-backend.tar.gz'), signing.index('RELEASE_SIGNING_KEY:'))
+        self.assertIn('--draft=false', signing)
+        self.assertNotIn('--clobber', signing.replace('# A new run has a unique identity. Never edit/upload --clobber or reuse a tag.', ''))
+        self.assertIn('needs: [publish-backend, validate-package]', text)
+        self.assertNotIn('BACKEND_SECRET', text)
 
     def test_cloudflare_preflight_and_exact_receipt_without_network_or_secret_logs(self):
         project_name = 'toolbox-fixture'

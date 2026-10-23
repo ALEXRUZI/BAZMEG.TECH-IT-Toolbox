@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
 import test from "node:test";
-import { cp, mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, writeFile, symlink, rm, readFile, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -97,7 +97,7 @@ test("server authentication precedes parsing and ignores spoofed proxy headers",
   assert.equal((await request("/healthz")).status, 200);
   assert.deepEqual(await request("/api/release", {
     headers: { "x-toolbox-backend-secret": secret },
-  }), { status: 200, body: { ok: true, revision: null, archiveSha256: null, apiContract: "toolbox-api-v1" } });
+  }), { status: 200, body: { ok: true, revision: null, archiveSha256: null, apiContract: "toolbox-api-v1", authorization: null } });
   assert.equal((await request("/missing", {
     headers: { "x-toolbox-backend-secret": secret },
   })).status, 404);
@@ -143,7 +143,52 @@ test("authenticated release endpoint identifies the running revision, not a late
   await writeFile(join(directory, ".archive-sha256"), "c".repeat(64));
   assert.deepEqual(await request("/api/release", {
     headers: { "x-toolbox-backend-secret": secret },
-  }), { status: 200, body: { ok: true, revision, archiveSha256, apiContract: "toolbox-api-v1" } });
+  }), { status: 200, body: { ok: true, revision, archiveSha256, apiContract: "toolbox-api-v1", authorization: null } });
+});
+
+test("authenticated endpoint observes same-commit signed acceptance after startup without restart", { timeout: 10000 }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "toolbox-live-authorization-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const revision = "a".repeat(40), archiveSha256 = "b".repeat(64);
+  const directory = join(root, revision), evidence = join(root, "accepted.json"), current = join(root, "current");
+  await mkdir(directory);
+  await cp(new URL("../src", import.meta.url), join(directory, "src"), { recursive: true });
+  await symlink(fileURLToPath(new URL("../node_modules", import.meta.url)), join(directory, "node_modules"));
+  await symlink(directory, current);
+  await writeFile(join(directory, ".archive-sha256"), archiveSha256 + "\n");
+  // Test-only dependency injection in a disposable copy. Real route/reader, with
+  // root ownership simulated because CI is unprivileged; no production env hook.
+  const module = join(directory, "src/release-info.mjs");
+  const code = (await readFile(module, "utf8")).replace(
+    "export function acceptedAuthorization(", "function readAcceptedAuthorization(");
+  await writeFile(module, code + `
+export function acceptedAuthorization(release) {
+  const filesystem = { ...fs,
+    lstatSync(path) { const info = fs.lstatSync(path); info.uid = 0; info.mode &= ~0o022; return info; },
+    fstatSync(fd) { const info = fs.fstatSync(fd); info.uid = 0; return info; }
+  };
+  return readAcceptedAuthorization(release, { filesystem, evidence: ${JSON.stringify(evidence)}, current: ${JSON.stringify(current)} });
+}
+`);
+  const secret = randomUUID();
+  const request = await startServer(t, secret, directory);
+  const read = async () => (await request("/api/release", { headers: { "x-toolbox-backend-secret": secret } })).body;
+  const write = async (value) => {
+    await writeFile(evidence + ".next", JSON.stringify(value, value && Object.keys(value).sort()) + "\n", { mode: 0o644 });
+    await rename(evidence + ".next", evidence);
+  };
+  assert.equal((await read()).authorization, null);
+  const old = { release: `production-6-16-${revision}`, sequence: "6", commit: revision,
+    archiveSha256, manifestSha256: "c".repeat(64), keyId: "test-key" };
+  await write({ schema: 1, ...old });
+  assert.deepEqual((await read()).authorization, old);
+  await write(null); // pending/failed/interrupted: no successful authorization
+  assert.equal((await read()).authorization, null);
+  const next = { ...old, release: `production-7-17-${revision}`, sequence: "7", manifestSha256: "d".repeat(64) };
+  await write({ schema: 1, ...next });
+  assert.deepEqual(await read(), { ok: true, revision, archiveSha256, apiContract: "toolbox-api-v1", authorization: next });
+  await writeFile(evidence, "{interrupted");
+  assert.equal((await read()).authorization, null);
 });
 
 test("authenticated tool validation and JSON parser errors retain safe contracts and recover", { timeout: 10000 }, async (t) => {

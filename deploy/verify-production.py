@@ -30,6 +30,8 @@ def verify(environment, branches, main, context):
     if (not re.fullmatch('[0-9a-f]{40}', sha) or
             context.get('APPROVED_SHA') != sha or main.get('object', {}).get('sha') != sha):
         raise ValueError('Approved SHA must equal this run and the current public main tip')
+    if environment.get('can_admins_bypass') is not False:
+        raise ValueError('Administrator bypass must be explicitly disabled')
     rules = [rule for rule in environment.get('protection_rules', [])
              if rule.get('type') == 'required_reviewers']
     if len(rules) != 1 or rules[0].get('prevent_self_review') is not False:

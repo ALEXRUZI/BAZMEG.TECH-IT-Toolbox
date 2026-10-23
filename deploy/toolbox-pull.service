@@ -1,0 +1,25 @@
+[Unit]
+Description=Authenticate and pull owner-approved Toolbox backend release
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/toolbox-pull/policy.json
+ConditionPathExists=/var/lib/toolbox-pull/state.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 -I /usr/local/libexec/toolbox-pull/toolbox-pull.py
+TimeoutStartSec=20min
+TimeoutStopSec=4min
+KillMode=control-group
+UMask=0077
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+NoNewPrivileges=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+
+# Deliberately no Install section: only the separately enabled timer starts this.

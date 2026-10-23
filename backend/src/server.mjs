@@ -4,7 +4,7 @@ import { registerDnsRoute } from "./dns-route.mjs";
 import { registerHttpRoute } from "./http-route.mjs";
 import { registerTlsRoute } from "./tls-route.mjs";
 import { registerRegistrationRoute } from "./registration-route.mjs";
-import { releaseInfo } from "./release-info.mjs";
+import { releaseInfo, acceptedAuthorization } from "./release-info.mjs";
 
 const app = Fastify({
   logger: true,
@@ -45,7 +45,7 @@ app.get("/api/ping", async (request) => {
 // Protected by the same authentication hook as every other /api endpoint.
 app.get("/api/release", async (request, reply) => {
   reply.header("Cache-Control", "no-store");
-  return { ok: true, ...release };
+  return { ok: true, ...release, authorization: acceptedAuthorization(release) };
 });
 
 registerTlsRoute(app, getClientIp);

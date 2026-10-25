@@ -1,0 +1,10 @@
+{
+  "keys": {
+    "production-2026": {
+      "path": "/etc/toolbox-pull/production-2026.pem",
+      "first": 1,
+      "last": 9223372036854775806,
+      "revoked": false
+    }
+  }
+}

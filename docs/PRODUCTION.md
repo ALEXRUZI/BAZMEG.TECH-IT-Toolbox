@@ -14,10 +14,17 @@ triggered deployments. There is no second-person or private-plan approval depend
   same public SHA's prebuilt assets **and Pages Function** are uploaded to the
   existing Cloudflare Pages project, on GitHub-hosted runners.
 
+Backend delivery is **pull-only**: GitHub publishes an owner-approved Ed25519-signed
+authorization; the backend checks outbound every **60 seconds**, independently verifies
+root-provisioned trust and activates locally. No GitHub SSH/SCP/SFTP connection,
+deployment webhook or backend Actions runner. The installed activation helper remains
+unchanged. Full protocol, host preparation, pin bootstrap, timer installation (disabled
+by default), check-only qualification and recovery: [pull runbook](../deploy/PULL-DEPLOYMENT.md).
+
 ## Required manual GitHub configuration
 
 Do not enable `TOOLBOX_PRODUCTION_ENABLED=true` in the public repository until all
-items below are verified. Never put production SSH/Cloudflare secrets in private
+items below are verified. Never put production signing/Cloudflare secrets in private
 development, ordinary repository/organization secrets, PR jobs or preview runners.
 
 ### Public main protection: PR and CI, zero approving reviews
@@ -100,13 +107,15 @@ queued runs fail, but main cannot be locked atomically across external services.
 
 ### Production-only credentials and variables
 
-Only public **production** environment secrets (backend):
+Only public **production** environment secret (backend authorization):
 
-- `PRODUCTION_BACKEND_SSH_HOST`: verified hostname/IPv4, no URL/options.
-- `PRODUCTION_BACKEND_SSH_USER`: `toolboxdeploy`.
-- `PRODUCTION_BACKEND_SSH_KEY`: new deployment-only Ed25519 private key.
-- `PRODUCTION_BACKEND_SSH_KNOWN_HOSTS`: independently verified host-key pin, never
-  unauthenticated trust-on-first-use `ssh-keyscan`.
+- `PRODUCTION_RELEASE_SIGNING_KEY`: dedicated independently generated Ed25519 private
+  PEM; no application/build/test execution with this key. Only the approved publishing
+  job gets it and `contents: write`. Environment variable `PRODUCTION_RELEASE_KEY_ID`
+  identifies the independently provisioned root-owned public verification pin.
+- Remove/revoke obsolete production deployment SSH secrets/authorized keys and the
+  toolboxdeploy sudo activation grant under an explicit cutover decision. New delivery
+  needs no SSH credential or sudo grant. Development SSH infrastructure is unchanged.
 
 Only public **production-pages** environment secrets (Pages):
 
@@ -117,13 +126,14 @@ Only public **production-pages** environment secrets (Pages):
 - `PRODUCTION_CLOUDFLARE_ACCOUNT_ID`: existing account identifier.
 
 Public `production-pages` variable: `PRODUCTION_PAGES_PROJECT` (existing project name).
-Set `PRODUCTION_PAGES_URL` (verified HTTPS UI origin, no path/query/credentials) in
-**both** environments. Pages preflight checks this origin against the exact project's
+Set `PRODUCTION_PAGES_URL` (verified HTTPS UI origin, no path/query/credentials) as a
+repository variable for the credential-free backend waiter and in the Pages environment.
+Pages preflight checks this origin against the exact project's
 custom domains/subdomain and does not follow API redirects with credentials. Pages
 Deploy Hook inventory/removal requires manual dashboard verification; the documented
 Pages API does not expose a stable hook-list contract used by this workflow.
 Public repository variable: `TOOLBOX_PRODUCTION_ENABLED=true` only after readiness.
-The SSH key is referenced only in the backend transfer step; Cloudflare token only
+The signing key is referenced only in the approved publishing step; Cloudflare token only
 in the frontend upload step. Build/test jobs have neither. No BACKEND_SECRET is
 given to GitHub jobs. Public CI remains unprivileged even for fork PRs.
 
@@ -131,21 +141,23 @@ Inventory/revoke old development-controlled production-capable keys/tokens durin
 the separately authorized cutover; new names do not revoke existing access. Keep
 development preview/builder workflows, files, runners and credentials unchanged.
 
-## Backend and hosted-runner connectivity
+## Backend outbound connectivity and local activation
 
-Use the existing root-owned systemd versioned-release/rollback script described in
-`deploy/PRODUCTION-BACKEND.md`. Preserve loopback, verified HTTPS ingress, SELinux,
-secret environment, dedicated restricted SSH account, pinned host keys, bounded
-archive checks, unprivileged dependency installation, immutable releases, atomic
-switch, deployment lock, health checks and transaction recovery. This work does
-not migrate the host or replace its installed root script.
+Use the existing root-owned versioned-release/rollback helper and new fixed-path
+pull orchestrator, described in `deploy/PULL-DEPLOYMENT.md`. Preserve loopback,
+verified HTTPS ingress, SELinux, secret environment, bounded archive checks,
+unprivileged dependency installation, immutable releases, atomic switch, locks,
+health checks and transaction recovery. There is no host migration/helper update.
+Network retrieval is toolboxdeploy-only; root reauthenticates frozen bytes before
+durable sequence reservation and activation. Unknown keys, expired approvals,
+conflicts/replays and pending transactions fail closed. No TOFU key is permitted.
 
-**Connectivity blocker:** secure SSH reachability from GitHub-hosted runners is
-not established by this source or offline tests. The owner must verify an approved
-restricted network path before activation. If unavailable, leave deployment disabled
-and document the blocker; do not open SSH broadly, bypass host pins, change firewall
-policy or move production credentials to preview/self-hosted development runners.
-No externally controlled runner/second custodian is required or provided.
+Minute-aligned systemd polling is non-overlapping, no backlog, disabled by default.
+Authenticated read-only polling is optional and recommended for shared egress;
+unauthenticated 60/hour limits leave little headroom. ETags, bounded HTTPS redirects,
+timeouts/sizes and persisted rate/backoff avoid continuous retries. GitHub outage
+does not interrupt active service. Host preparation/pin provisioning/OL10.2 SELinux
+qualification remain mandatory manual checks, not a reason to open inbound deployment.
 
 ## Existing Cloudflare Pages project: controlled exact-SHA upload
 
@@ -224,12 +236,20 @@ References checked 2026-10-17: [Pages direct upload and Functions](https://devel
    the committed receipt; backend archive uses committed objects and commit-time
    timestamps, never npm-mutated files or wall-clock archive times. Same-SHA retries
    reproduce the backend digest and can reuse its immutable installed release.
-4. Owner approves backend in **production**. The root script activates/verifies it and rolls back on
-   activation failure. Workflow additionally verifies authenticated ingress via the
+4. Owner approves backend in **production**. The isolated signing job publishes archive,
+   canonical manifest and detached signature under a unique SHA/run/sequence identity.
+   The backend independently discovers/verifies/activates it; root helper rolls back on
+   activation failure. A credential-free job waits up to 25 minutes (30-minute job bound)
+   for authenticated acceptance via the
    still-live Pages Function. The authenticated `/api/release` response must report
-   this public SHA, the tested archive SHA-256, and `toolbox-api-v1`. Identity is read
-   once from the executing immutable release directory and its root-script-created
-   `.archive-sha256`, not a request/env/branch label. Local, preview and legacy runs
+   this public SHA, the tested archive SHA-256, `toolbox-api-v1`, and the **exact
+   current signed release, sequence, canonical manifest SHA-256 and signing key ID**.
+   Commit/archive are loaded once from the executing immutable release directory
+   and `.archive-sha256`; accepted authorization is read per request from a separate
+   root-owned read-only projection published only after durable successful acceptance.
+   Expectations come from actual signed manifest outputs, never mutable Release
+   metadata. Same SHA/archive under an earlier approval cannot satisfy a new run.
+   No identity comes from a request/env/branch label. Local, preview and legacy runs
    report unknown identity and cannot satisfy production acceptance.
    Bounded `{}` POST probes require the expected validation errors from all four
    tool endpoints, without triggering diagnostic network work. A missing endpoint,
@@ -238,7 +258,9 @@ References checked 2026-10-17: [Pages direct upload and Functions](https://devel
    live UI and `/api/ping`, direct backend rejection without authentication and old/new
    API compatibility. Use disposable secret-tool inputs, no secret-bearing recordings.
    Any live diagnostics require separate authorization and bounded approved targets.
-   Automatic postflight repeats backend identity/compatibility and compares live
+   Immediately before upload, recheck the same signed authorization after Cloudflare
+   project preflight. A waiter timeout never makes Pages eligible later.
+   Automatic postflight repeats signed backend identity/compatibility and compares live
    HTML SHA-256 against the exact uploaded artifact. Cloudflare's canonical deployment
    ID/commit and successful deploy stage are checked separately. This is not a
    cryptographic attestation of server execution or a full functional API proof.
@@ -272,7 +294,7 @@ or merge private history to roll back. Record safe outcomes and remaining defect
 | Pages upload fails, succeeds without postflight, or postflight fails | Pages may already be active. Stop releases; inspect canonical ID and restore known-good Pages **and Function**, then backend only if compatible. |
 | Approval waits while main advances | Recheck refuses stale SHA. Replan/review the new public base; do not redeploy stale inputs. |
 | Repeat same release | Fresh dispatch + CI/artifacts + both approvals. Reproducible backend archive permits immutable-release reuse; Pages may create a new deployment ID. |
-| Cancellation during SSH/activation | Cancellation cannot undo external effects. Inspect backend transaction/journal and canonical Pages state; never delete intent markers or retry blindly. |
+| Wait timeout/cancellation during pull/activation | A published signature remains eligible until expiry/root revocation; backend may activate later. Pages stays blocked. Inspect backend transaction/high-water/journal and canonical Pages state, then fresh dispatch/CI/both approvals; never replay old approval or delete intent markers. |
 
 No workflow can atomically lock GitHub main, the host and Cloudflare. A final
 read-only check narrows but cannot remove the external-operation race. Freeze owner
@@ -302,10 +324,11 @@ The credentialed Pages runner installs tools with lifecycle scripts disabled.
   no bypass/additional custodian, exact main **branch** policy and separate secrets.
   Confirm GITHUB_TOKEN can read environment/run/review metadata; leave disabled if
   metadata is unavailable, rather than granting CI an administrator credential.
-- [ ] Provision new least-privilege production-only SSH and Cloudflare credentials;
+- [ ] Provision independent production signing key/root public pin and Cloudflare credentials;
   inventory/revoke previous production-capable development credentials separately.
-- [ ] Verify restricted hosted-runner SSH reachability, host-key pins, installed
-  reviewed root script, accounts/sudo/systemd/SELinux, loopback and HTTPS ingress.
+- [ ] Verify outbound API/CDN access, installed checksum-pinned root helper and pull code,
+  root-owned key/policy/high-water state, removal of deploy sudo/SSH grants, accounts,
+  systemd/SELinux, loopback/HTTPS ingress; check-only then separately authorize timer.
 - [ ] Verify existing Pages account/project/domains, disabled automatic production
   and preview Git builds, no Deploy Hooks, HTTPS BACKEND_ORIGIN and secret binding.
 - [ ] Record old/new API compatibility and rollback window; retain compatible backend
@@ -315,7 +338,7 @@ The credentialed Pages runner installs tools with lifecycle scripts disabled.
   A green bundle guard is not a security-exception approval.
 
 **Requires a separately authorized real first deployment**: owner self-approval UX
-at both checkpoints, actual Actions metadata permissions, pinned SSH connectivity,
+at both checkpoints, actual Actions metadata permissions, signed-release/CDN interoperability,
 service revision/ingress, Cloudflare upload/settings/binding preservation, domain
 propagation and rollback rehearsal. No live environment or setting is certified by
 these offline tests; the owner has not authorized any production release.

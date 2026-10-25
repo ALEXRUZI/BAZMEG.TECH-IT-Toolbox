@@ -18,7 +18,7 @@ This is not the tool error envelope. Authentication is service-to-service, not u
 | --- | --- | --- |
 | `GET /healthz` | Exempt only for the exact request URL `/healthz` (no query string) | `{"status":"ok","service":"toolbox-api"}` |
 | `GET /api/ping` | Required | `{"ok":true,"message":"toolbox API reachable"}` |
-| `GET /api/release` | Required | `{"ok":true,"revision":null,"archiveSha256":null,"apiContract":"toolbox-api-v1"}` locally/when release identity is unavailable |
+| `GET /api/release` | Required | `{"ok":true,"revision":null,"archiveSha256":null,"apiContract":"toolbox-api-v1","authorization":null}` locally/when release identity is unavailable |
 
 Health reports process reachability, not resolver connectivity, capacity, or successful diagnostics. The Pages handler covers `/api/*`, not `/healthz`; use backend/operator-controlled health access. [Local examples](../README.md#local-development) exercise health and authenticated ping without external network work.
 
@@ -27,8 +27,26 @@ Health reports process reachability, not resolver connectivity, capacity, or suc
 archive digest. [release-info.mjs](../backend/src/release-info.mjs) reads the executing
 source's resolved directory and regular `.archive-sha256` marker once at startup.
 Neither labels from request/environment nor a later `current` switch change that
-process's identity. No paths, private commits or configuration are returned. This
-is operational evidence, not cryptographic attestation or full API compatibility.
+process's identity. The additive `authorization` field is read **on every request**
+from the root-controlled acceptance projection, not startup-cached. It is either
+`null` or exactly:
+
+```json
+{"release":"production-7-17-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sequence":"7","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","archiveSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","manifestSha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","keyId":"production-2026"}
+```
+
+`sequence` is canonical decimal **text** to preserve signed int64 precision.
+`manifestSha256` hashes the exact canonical signed manifest bytes, including the
+final LF; `keyId` is its independently provisioned signing-key identifier, not a key.
+Root publishes this projection only after signature authentication, activation/health
+and durable acceptance. It is invalidated before a new activation, including same-SHA
+reauthorization. Missing/inaccessible/malformed/unsafe evidence, mismatched executing
+commit/archive/current target, and unresolved activation transactions return `null`.
+Local and legacy deployments still return 200 with honest unknown fields; they cannot
+satisfy production acceptance. Expiry prevents new acceptance, not continued reporting
+of an already accepted authorization. No paths, private commits, secrets or policy
+are returned. This is operational evidence via a trusted backend/ingress, not remote
+cryptographic attestation of a compromised application or full API compatibility.
 The production workflow additionally probes all tool routes with invalid `{}` input
 and checks exact validation envelopes before permitting frontend deployment.
 

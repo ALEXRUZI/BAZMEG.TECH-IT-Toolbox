@@ -233,7 +233,7 @@ class ProductionPolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='toolbox-live-probes-') as temp:
             marker = Path(temp) / 'verified.json'
             marker.write_text(json.dumps({'sha': SHA, 'files': {'index.html': hashlib.sha256(index).hexdigest()}}))
-            for scenario in ('valid', 'revision', 'digest', 'contract', 'endpoint', 'health', 'frontend', 'oversized',
+            for scenario in ('valid', 'valid-without-artifact', 'revision', 'digest', 'contract', 'endpoint', 'health', 'frontend', 'oversized',
                              'old-authorization', 'different-run', 'sequence', 'manifest', 'key', 'missing', 'null'):
                 values = copy.deepcopy(responses)
                 if scenario == 'revision': values[1][1]['revision'] = 'c' * 40
@@ -254,9 +254,27 @@ class ProductionPolicyTests(unittest.TestCase):
                 outputs.append(Response(200, b'wrong revision' if scenario == 'frontend' else index))
                 with patch.object(health, 'build_opener') as opener:
                     opener.return_value.open.side_effect = outputs
-                    if scenario == 'valid':
-                        health.verify('https://pages.example.test', SHA, digest, marker, identity=IDENTITY)
+                    if scenario in ('valid', 'valid-without-artifact'):
+                        health.verify('https://pages.example.test', SHA, digest,
+                                      marker if scenario == 'valid' else None, identity=IDENTITY)
                         self.assertEqual(opener.return_value.open.call_count, 7)
+                        self.assertIsInstance(opener.call_args.args[0], health.NoRedirect)
+                        paths = ['/api/ping', '/api/release', '/api/tools/dns-check',
+                                 '/api/tools/http-header-check', '/api/tools/tls-check',
+                                 '/api/tools/rdap-lookup', '/']
+                        for call, path in zip(opener.return_value.open.call_args_list, paths):
+                            with self.subTest(scenario=scenario, path=path):
+                                request = call.args[0]
+                                self.assertEqual(request.full_url, 'https://pages.example.test' + path)
+                                self.assertEqual(request.get_header('User-agent'),
+                                                 'Toolbox-Production-Acceptance/1.0')
+                                self.assertEqual(call.kwargs, {'timeout': 20})
+                                diagnostic = path.startswith('/api/tools/')
+                                self.assertEqual(request.get_method(), 'POST' if diagnostic else 'GET')
+                                self.assertEqual(request.data, b'{}' if diagnostic else None)
+                                if path.startswith('/api/'):
+                                    self.assertEqual(request.get_header('Cache-control'), 'no-cache')
+                                    self.assertEqual(request.get_header('Content-type'), 'application/json')
                     else:
                         with self.subTest(scenario=scenario), self.assertRaises(ValueError):
                             health.verify('https://pages.example.test', SHA, digest, marker, identity=IDENTITY)

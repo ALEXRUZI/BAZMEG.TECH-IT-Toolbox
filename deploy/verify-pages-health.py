@@ -10,6 +10,9 @@ from urllib.parse import urlsplit
 from urllib.request import build_opener, HTTPRedirectHandler
 
 
+USER_AGENT = 'Toolbox-Production-Acceptance/1.0'
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
@@ -65,7 +68,8 @@ def verify(origin, sha, digest, artifact=None, identity=None):
 
     def request(path, expected, body=None):
         request = Request(origin.rstrip('/') + path, data=body,
-                          headers={'Cache-Control': 'no-cache', 'Content-Type': 'application/json'})
+                          headers={'Cache-Control': 'no-cache', 'Content-Type': 'application/json',
+                                   'User-Agent': USER_AGENT})
         # Error envelopes are intentional compatibility probes, never outbound work.
         from urllib.error import HTTPError
         try:
@@ -89,7 +93,7 @@ def verify(origin, sha, digest, artifact=None, identity=None):
         if tool == 'rdap-lookup':
             body.update(attempts=[], rawResponses=[])
         request('/api/tools/' + tool, (400, body), b'{}')
-    with opener.open(origin.rstrip('/') + '/', timeout=20) as response:
+    with opener.open(Request(origin.rstrip('/') + '/', headers={'User-Agent': USER_AGENT}), timeout=20) as response:
         if response.status != 200 or 'text/html' not in response.headers.get('Content-Type', ''):
             raise ValueError('Frontend acceptance failed')
         if artifact:
